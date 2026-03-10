@@ -1,7 +1,130 @@
 import { useState } from "react";
-import { base44 } from "@/api/base44Client";
+import { supabase } from "@/api/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { X, Upload, CheckCircle, AlertCircle } from "lucide-react";
+import * as XLSX from "xlsx";
+
+const ENTITY_TABLES = {
+  VanaLead: "vana_leads",
+  MatchTalkLead: "matchtalk_leads",
+  GreenFormLead: "greenform_leads",
+};
+
+const TABLE_COLUMNS = {
+  vana_leads: [
+    "booking_id",
+    "chassis_no",
+    "ppl",
+    "pl",
+    "colour",
+    "ca_name",
+    "opty_id",
+    "customer_name",
+    "vc_number",
+    "yf_open_date",
+    "phone_number",
+    "branch",
+    "tl_name",
+    "allocation_status",
+  ],
+  matchtalk_leads: [
+    "chassis_no",
+    "ppl",
+    "pl",
+    "colour",
+    "ca_name",
+    "customer_name",
+    "phone_number",
+    "no_status",
+    "vc_number",
+    "opty_id",
+    "finance_remark",
+    "wa_1",
+    "wa_2",
+    "next_message_date",
+    "wa_v1",
+    "wa_v2",
+    "remarks",
+  ],
+  greenform_leads: [
+    "ppl",
+    "source_pv",
+    "phone_number",
+    "employee_full_name",
+    "sales_stage",
+    "customer_name",
+    "opportunity_name",
+    "tl_name",
+    "branch",
+    "total_offers",
+    "ev_or_pv",
+    "month",
+    "wa_1",
+    "wa_2",
+    "wa_3",
+    "wa_4",
+    "next_message_date",
+    "wa_v1",
+    "wa_v2",
+    "wa_v3",
+    "wa_v4",
+    "remarks",
+    "mtd",
+  ],
+};
+
+const normalizeHeaderToColumn = (header) => {
+  if (header == null) return null;
+  const raw = String(header).trim();
+  if (!raw) return null;
+
+  // Handle some common header variants.
+  const lowered = raw.toLowerCase();
+  const directAliases = {
+    "chassis no": "chassis_no",
+    "chassis": "chassis_no",
+    "booking id": "booking_id",
+    "opty id": "opty_id",
+    "opportunity id": "opty_id",
+    "customer name": "customer_name",
+    "phone": "phone_number",
+    "phone number": "phone_number",
+    "ca name": "ca_name",
+    "tl name": "tl_name",
+    "vc number": "vc_number",
+    "allocation status": "allocation_status",
+    "opportunity name": "opportunity_name",
+    "employee full name": "employee_full_name",
+    "sales stage": "sales_stage",
+    "finance remark": "finance_remark",
+    "next message date": "next_message_date",
+    "total offers": "total_offers",
+    "ev/pv": "ev_or_pv",
+  };
+  if (directAliases[lowered]) return directAliases[lowered];
+
+  return lowered
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_");
+};
+
+const readFileAsArrayBuffer = (f) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.onload = () => resolve(reader.result);
+    reader.readAsArrayBuffer(f);
+  });
+
+const chunk = (arr, size) => {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) {
+    out.push(arr.slice(i, i + size));
+  }
+  return out;
+};
 
 export default function ImportLeadsDialog({ entityName, onClose, onImported }) {
   const [file, setFile] = useState(null);
@@ -11,32 +134,69 @@ export default function ImportLeadsDialog({ entityName, onClose, onImported }) {
   const handleImport = async () => {
     if (!file) return;
     setLoading(true);
-    const { file_url } = await base44.integrations.Core.UploadFile({ file });
-    const schema = await base44.entities[entityName].schema();
-    const extracted = await base44.integrations.Core.ExtractDataFromUploadedFile({
-      file_url,
-      json_schema: {
-        type: "object",
-        properties: {
-          records: {
-            type: "array",
-            items: { type: "object", properties: schema.properties }
-          }
-        }
+    try {
+      const table = ENTITY_TABLES[entityName];
+      const allowedColumns = TABLE_COLUMNS[table];
+      if (!table || !allowedColumns) {
+        setResult({ error: "Unsupported entity for import." });
+        setLoading(false);
+        return;
       }
-    });
 
-    if (extracted.status !== "success" || !extracted.output?.records?.length) {
-      setResult({ error: "Could not extract data from file. Check format." });
+      const buffer = await readFileAsArrayBuffer(file);
+      const workbook = XLSX.read(buffer, { type: "array" });
+      const firstSheetName = workbook.SheetNames?.[0];
+      const sheet = firstSheetName ? workbook.Sheets[firstSheetName] : null;
+
+      if (!sheet) {
+        setResult({ error: "Could not read spreadsheet. Check format." });
+        setLoading(false);
+        return;
+      }
+
+      const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: null });
+      if (!rawRows || rawRows.length === 0) {
+        setResult({ error: "No rows found in file." });
+        setLoading(false);
+        return;
+      }
+
+      const records = rawRows
+        .map((row) => {
+          const record = {};
+          for (const [header, value] of Object.entries(row)) {
+            const col = normalizeHeaderToColumn(header);
+            if (!col) continue;
+            if (!allowedColumns.includes(col)) continue;
+            // Convert empty strings to null so Supabase inserts are cleaner.
+            const cleaned = typeof value === "string" && value.trim() === "" ? null : value;
+            record[col] = cleaned;
+          }
+          return record;
+        })
+        .filter((r) => Object.keys(r).length > 0);
+
+      if (records.length === 0) {
+        setResult({ error: "Could not map any columns. Check header names." });
+        setLoading(false);
+        return;
+      }
+
+      // Insert in chunks to avoid request size limits.
+      const batches = chunk(records, 500);
+      for (const batch of batches) {
+        const { error } = await supabase.from(table).insert(batch);
+        if (error) throw error;
+      }
+
+      setResult({ success: true, count: records.length });
+      onImported();
       setLoading(false);
-      return;
+    } catch (e) {
+      const msg = e?.message || "Import failed.";
+      setResult({ error: msg });
+      setLoading(false);
     }
-
-    const records = extracted.output.records;
-    await base44.entities[entityName].bulkCreate(records);
-    setResult({ success: true, count: records.length });
-    onImported();
-    setLoading(false);
   };
 
   return (
