@@ -78,6 +78,7 @@ export const AuthProvider = ({ children }) => {
         setUser(null);
         setIsAuthenticated(false);
         setAuthError({ type: 'auth_required', message: 'Authentication required' });
+        setIsLoadingAuth(false);
         return;
       }
 
@@ -87,7 +88,6 @@ export const AuthProvider = ({ children }) => {
       setUser(null);
       setIsAuthenticated(false);
       setAuthError({ type: 'auth_required', message: 'Authentication required' });
-    } finally {
       setIsLoadingAuth(false);
     }
   };
