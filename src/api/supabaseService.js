@@ -26,7 +26,6 @@ const normalizeSingle = (payload, rows) => {
 
 const throwIfError = (error) => {
   if (!error) return;
-  // Preserve a simple thrown-error contract similar to what the UI expects.
   throw error;
 };
 
@@ -68,13 +67,13 @@ const createEntityAdapter = (entityName) => {
   };
 };
 
-const safeRedirect = (url) => {
-  if (typeof window === 'undefined') return;
-  if (!url || typeof url !== 'string') return;
-  window.location.href = url;
+const getSafeFilePath = (name) => {
+  const timestamp = Date.now();
+  const safeName = String(name || 'upload').replace(/[^a-zA-Z0-9_.-]/g, '_');
+  return `uploads/${timestamp}-${safeName}`;
 };
 
-export const base44 = {
+export const supabaseApi = {
   entities: {
     VanaLead: createEntityAdapter('VanaLead'),
     MatchTalkLead: createEntityAdapter('MatchTalkLead'),
@@ -95,73 +94,27 @@ export const base44 = {
     }
   },
 
-  auth: {
-    me: async () => {
-      const { data, error } = await supabase.auth.getUser();
-      throwIfError(error);
-      const authUser = data?.user;
-      if (!authUser) return null;
-
-      // Merge in profile data so the UI can read `role`/`ca_names`.
-      const { data: profile, error: profileError } = await supabase
-        .from(ENTITY_TABLES.User)
-        .select('*')
-        .eq('id', authUser.id)
-        .maybeSingle();
-      throwIfError(profileError);
-
-      return {
-        ...(profile ?? {}),
-        id: authUser.id,
-        email: authUser.email
-      };
-    },
-
-    updateMe: async (payload) => {
-      const { data, error } = await supabase.auth.getUser();
-      throwIfError(error);
-      const authUser = data?.user;
-      if (!authUser) return null;
-
-      const { data: updated, error: updateError } = await supabase
-        .from(ENTITY_TABLES.User)
-        .update(payload)
-        .eq('id', authUser.id)
-        .select()
-        .maybeSingle();
-      throwIfError(updateError);
-      return updated ?? null;
-    },
-
-    logout: async (redirectUrl) => {
-      const { error } = await supabase.auth.signOut();
-      throwIfError(error);
-      safeRedirect(redirectUrl);
-    },
-
-    redirectToLogin: (redirectUrl) => {
-      // OAuth / magic-link flow will be wired up later.
-      // For now, keep the method present so UI calls don't crash.
-      safeRedirect(redirectUrl);
-    }
-  },
-
   users: {
     inviteUser: async (email, role) => {
-      // Inviting users requires service-role privileges; typically implemented via an Edge Function.
-      // Keep this as a best-effort call so the UI doesn't crash during migration.
       const { data, error } = await supabase.functions.invoke('inviteUser', {
         body: { email, role }
       });
-
       if (error) {
-        if (typeof console !== 'undefined') {
-          console.warn('inviteUser failed (expected until implemented):', error);
-        }
         return { data: null, error };
       }
-
       return { data };
+    }
+  },
+
+  storage: {
+    uploadFile: async (file, bucket = 'attachments') => {
+      const filePath = getSafeFilePath(file?.name);
+      const { error } = await supabase.storage.from(bucket).upload(filePath, file, {
+        upsert: false
+      });
+      throwIfError(error);
+      const { data } = supabase.storage.from(bucket).getPublicUrl(filePath);
+      return { file_url: data?.publicUrl || '' };
     }
   }
 };

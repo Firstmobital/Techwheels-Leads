@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { supabaseApi } from '@/api/supabaseService';
 import { useQuery } from '@tanstack/react-query';
-import { UserPlus, Mail, CheckCircle2, Loader2, Users, Trash2 } from 'lucide-react';
+import { UserPlus, Mail, CheckCircle2, Loader2, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
@@ -15,7 +15,7 @@ export default function InviteUsers() {
 
   const { data: users = [], refetch } = useQuery({
     queryKey: ['users'],
-    queryFn: () => base44.entities.User.list(),
+    queryFn: () => supabaseApi.entities.User.list(),
   });
 
   const handleAddCaName = () => {
@@ -30,28 +30,52 @@ export default function InviteUsers() {
   };
 
   const handleInvite = async () => {
-    if (!email.trim() || !email.includes('@')) {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail || !normalizedEmail.includes('@')) {
       toast.error('Please enter a valid email address');
       return;
     }
-    setLoading(true);
-    await base44.users.inviteUser(email.trim(), 'user');
-    
-    // Update user with ca_names
-    if (caNames.length > 0) {
-      const user = users.find(u => u.email === email.trim());
-      if (user) {
-        await base44.entities.User.update(user.id, { ca_names: caNames });
+
+    try {
+      setLoading(true);
+
+      // 1) Invite user
+      const inviteRes = await supabaseApi.users.inviteUser(normalizedEmail, 'user');
+      if (inviteRes?.error) {
+        throw new Error(inviteRes.error.message || 'Failed to invite user');
       }
+
+      const invitedUserId = inviteRes?.data?.user_id;
+
+      // 2) Wait for profiles list refresh
+      const refreshed = await refetch();
+      const refreshedUsers = refreshed?.data || [];
+
+      // 3) Assign CA names only after profile exists/refetch completes
+      if (caNames.length > 0) {
+        const invitedUser = invitedUserId
+          ? refreshedUsers.find((u) => u.id === invitedUserId)
+          : refreshedUsers.find((u) => u.email === normalizedEmail);
+
+        if (!invitedUser) {
+          throw new Error('Invited user profile not found after refresh');
+        }
+
+        await supabaseApi.entities.User.update(invitedUser.id, { ca_names: caNames });
+        await refetch();
+      }
+
+      setInvited(prev => [...prev, normalizedEmail]);
+      setEmail('');
+      setCaNames([]);
+      setCaInput('');
+      toast.success(`Invitation sent to ${normalizedEmail}`);
+    } catch (error) {
+      toast.error(error.message || 'Failed to invite user');
+    } finally {
+      setLoading(false);
     }
-    
-    setInvited(prev => [...prev, email.trim()]);
-    setEmail('');
-    setCaNames([]);
-    setCaInput('');
-    setLoading(false);
-    toast.success(`Invitation sent to ${email.trim()}`);
-    refetch();
   };
 
   const salespeople = users.filter(u => u.role === 'user');

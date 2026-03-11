@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { supabaseApi } from '@/api/supabaseService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -33,12 +33,12 @@ export default function Templates() {
 
   const { data: templates = [], isLoading } = useQuery({
     queryKey: ['templates'],
-    queryFn: () => base44.entities.Template.list('-day_step'),
+    queryFn: () => supabaseApi.entities.Template.list('-day_step'),
   });
 
   const { data: greenformLeads = [] } = useQuery({
     queryKey: ['greenform-leads'],
-    queryFn: () => base44.entities.GreenFormLead.list(),
+    queryFn: () => supabaseApi.entities.GreenFormLead.list(),
   });
 
   const pplOptions = greenformLeads.length > 0 
@@ -46,17 +46,17 @@ export default function Templates() {
     : [];
 
   const createMutation = useMutation({
-    mutationFn: (data) => base44.entities.Template.create(data),
+    mutationFn: (data) => supabaseApi.entities.Template.create(data),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['templates'] }); resetForm(); },
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }) => base44.entities.Template.update(id, data),
+    mutationFn: ({ id, data }) => supabaseApi.entities.Template.update(id, data),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['templates'] }); resetForm(); },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id) => base44.entities.Template.delete(id),
+    mutationFn: (id) => supabaseApi.entities.Template.delete(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['templates'] }),
   });
 

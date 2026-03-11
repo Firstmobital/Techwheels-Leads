@@ -1,29 +1,30 @@
 import { google } from "npm:googleapis@140";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-// Sheet ID for Vana, MatchTalk, GreenForm data
 const SPREADSHEET_ID = "1MWP5PPNgZ2HmA0XnPfPM32Gu9USQofLhSTWl8JbwS_k";
 
-const ENTITY_TABLES: Record<string, string> = {
+const ENTITY_TABLES = {
   VanaLead: "vana_leads",
   MatchTalkLead: "matchtalk_leads",
   GreenFormLead: "greenform_leads",
-};
+} as const;
+
+type EntityName = keyof typeof ENTITY_TABLES;
 
 const SHEET_CONFIG = {
   GreenFormLead: {
     sheetName: "Live Green Form Data",
-    uniqueKey: "opportunity_name",
+    leadIdCandidates: ["opportunity_name", "phone_number"],
   },
   MatchTalkLead: {
     sheetName: "Match Stock",
-    uniqueKey: "vc_number",
+    leadIdCandidates: ["vc_number", "opty_id", "phone_number"],
   },
   VanaLead: {
     sheetName: "VNA Next Allocation",
-    uniqueKey: "opty_id",
+    leadIdCandidates: ["opty_id", "vc_number", "phone_number"],
   },
-};
+} as const;
 
 const FIELD_MAPS = {
   GreenFormLead: {
@@ -113,19 +114,16 @@ function requiredEnv(name: string): string {
   return val;
 }
 
-// Validate required env vars at cold start.
 requiredEnv("SUPABASE_URL");
 requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
 requiredEnv("GOOGLE_CLIENT_EMAIL");
 requiredEnv("GOOGLE_PRIVATE_KEY");
 
-// Trusted server-side Supabase client (no user JWT required).
 const supabaseAdmin = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-// Google Sheets client using service account credentials.
 const GOOGLE_CLIENT_EMAIL = Deno.env.get("GOOGLE_CLIENT_EMAIL")!;
 const GOOGLE_PRIVATE_KEY = Deno.env.get("GOOGLE_PRIVATE_KEY")!;
 
@@ -139,9 +137,7 @@ const auth = new google.auth.GoogleAuth({
 
 const sheets = google.sheets({ version: "v4", auth });
 
-async function fetchSheetData(accessToken: any, sheetName: string) {
-  // accessToken kept for backward-compat in signature; no longer used.
-  void accessToken;
+async function fetchSheetData(sheetName: string) {
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
     range: sheetName,
@@ -153,11 +149,11 @@ function normalizeHeader(h: string) {
   return h.trim().replace(/\s+/g, " ");
 }
 
-function parseRows(values: any[], entityName: keyof typeof FIELD_MAPS) {
+function parseRows(values: any[], entityName: EntityName) {
   if (values.length < 2) return [];
 
   const headers = values[0].map(normalizeHeader);
-  const fieldMap = (FIELD_MAPS as any)[entityName];
+  const fieldMap = FIELD_MAPS[entityName] as Record<string, string>;
 
   return values
     .slice(1)
@@ -178,103 +174,177 @@ function parseRows(values: any[], entityName: keyof typeof FIELD_MAPS) {
     .filter((r) => Object.keys(r).length > 0);
 }
 
-Deno.serve(async (req) => {
-  let logId: string | null = null;
-  let entityName: string | null = null;
+function normalizeLeadIdValue(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function buildLeadId(entityName: EntityName, row: Record<string, any>): string | null {
+  const candidates = SHEET_CONFIG[entityName].leadIdCandidates;
+  for (const candidate of candidates) {
+    const raw = row?.[candidate];
+    const normalized = normalizeLeadIdValue(raw);
+    if (normalized) {
+      return `${entityName}:${candidate}:${normalized}`;
+    }
+  }
+  return null;
+}
+
+function dedupeByLeadId(rows: Record<string, any>[]) {
+  const map = new Map<string, Record<string, any>>();
+  for (const row of rows) {
+    if (!row.lead_id) continue;
+    map.set(row.lead_id, row);
+  }
+  return Array.from(map.values());
+}
+
+async function createSyncLog(entityName: EntityName) {
+  const { data, error } = await supabaseAdmin
+    .from("sync_logs")
+    .insert({
+      entity: entityName,
+      started_at: new Date().toISOString(),
+      status: "running",
+    })
+    .select("id")
+    .maybeSingle();
+
+  if (error) throw new Error(`sync_logs insert failed: ${error.message}`);
+  return data?.id ?? null;
+}
+
+async function finishSyncLog(logId: string | null, payload: Record<string, unknown>) {
+  if (!logId) return;
+  await supabaseAdmin.from("sync_logs").update(payload).eq("id", logId);
+}
+
+async function syncEntity(entityName: EntityName) {
+  const table = ENTITY_TABLES[entityName];
+  const sheetName = SHEET_CONFIG[entityName].sheetName;
+  const logId = await createSyncLog(entityName);
 
   try {
-    const body = await req.json().catch(() => ({}));
-    entityName = body.entity;
+    const values = await fetchSheetData(sheetName);
+    const parsed = parseRows(values, entityName);
+    const withLeadId = parsed
+      .map((row) => ({ ...row, lead_id: buildLeadId(entityName, row) }))
+      .filter((row) => !!row.lead_id);
+    const payload = dedupeByLeadId(withLeadId);
 
-    if (!(SHEET_CONFIG as any)[entityName]) {
-      return Response.json({ error: "Invalid entity" }, { status: 400 });
-    }
+    const skipped = parsed.length - payload.length;
 
-    const config = (SHEET_CONFIG as any)[entityName];
+    let existingLeadIds = new Set<string>();
+    if (payload.length > 0) {
+      const ids = payload.map((r) => r.lead_id as string);
+      const CHUNK = 500;
 
-    // Start sync log (best-effort; never blocks sync).
-    try {
-      const { data: logRow, error: logError } = await supabaseAdmin
-        .from("sync_logs")
-        .insert({ entity: entityName, started_at: new Date().toISOString(), status: "running" })
-        .select("id")
-        .maybeSingle();
-      if (!logError && logRow?.id) logId = logRow.id;
-    } catch {
-      // ignore logging errors
-    }
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const chunk = ids.slice(i, i + CHUNK);
+        const { data, error } = await supabaseAdmin
+          .from(table)
+          .select("lead_id")
+          .in("lead_id", chunk);
 
-    const values = await fetchSheetData(null, config.sheetName);
+        if (error) throw new Error(`Existing lead lookup failed: ${error.message}`);
+        (data ?? []).forEach((r: any) => {
+          if (r?.lead_id) existingLeadIds.add(r.lead_id);
+        });
+      }
 
-    const rows = parseRows(values, entityName);
+      const UPSERT_CHUNK = 200;
+      for (let i = 0; i < payload.length; i += UPSERT_CHUNK) {
+        const batch = payload.slice(i, i + UPSERT_CHUNK);
+        const { error } = await supabaseAdmin
+          .from(table)
+          .upsert(batch, { onConflict: "lead_id" });
 
-    const table = ENTITY_TABLES[entityName];
-    if (!table) {
-      return Response.json({ error: `Unknown entity: ${entityName}` }, { status: 400 });
-    }
-
-    // Database-side deduplication: rely on a UNIQUE constraint/index on config.uniqueKey.
-    // Skip rows missing the unique key to avoid inserting duplicates (NULLs are not equal).
-    const uniqueKey = config.uniqueKey as string;
-    const validRows = rows.filter((r: any) => (r?.[uniqueKey] ?? "").toString().trim());
-    const skipped = rows.length - validRows.length;
-
-    if (validRows.length > 0) {
-      const { error } = await supabaseAdmin
-        .from(table)
-        .upsert(validRows, { onConflict: uniqueKey, count: "exact" });
-
-      if (error) throw new Error(error.message);
-    }
-
-    // With DB-side upsert we don't compute inserted-vs-updated counts without extra queries.
-    const created = validRows.length;
-    const updated = 0;
-
-    // Finish sync log (best-effort).
-    if (logId) {
-      try {
-        await supabaseAdmin
-          .from("sync_logs")
-          .update({
-            finished_at: new Date().toISOString(),
-            rows_processed: rows.length,
-            rows_inserted: created,
-            rows_updated: updated,
-            rows_skipped: skipped,
-            status: "success",
-          })
-          .eq("id", logId);
-      } catch {
-        // ignore logging errors
+        if (error) throw new Error(`Upsert failed: ${error.message}`);
       }
     }
+
+    const updated = payload.filter((r) => existingLeadIds.has(r.lead_id)).length;
+    const inserted = payload.length - updated;
+
+    await finishSyncLog(logId, {
+      finished_at: new Date().toISOString(),
+      rows_processed: parsed.length,
+      rows_inserted: inserted,
+      rows_updated: updated,
+      rows_skipped: skipped,
+      status: "success",
+      error_message: null,
+    });
+
+    return {
+      entity: entityName,
+      table,
+      sheet: sheetName,
+      log_id: logId,
+      rows_processed: parsed.length,
+      rows_inserted: inserted,
+      rows_updated: updated,
+      rows_skipped: skipped,
+      status: "success",
+    };
+  } catch (error: any) {
+    await finishSyncLog(logId, {
+      finished_at: new Date().toISOString(),
+      status: "failed",
+      error_message: error?.message ?? String(error),
+    });
+
+    return {
+      entity: entityName,
+      table,
+      sheet: sheetName,
+      log_id: logId,
+      status: "failed",
+      error: error?.message ?? String(error),
+    };
+  }
+}
+
+function parseRequestedEntities(body: any): EntityName[] {
+  const entity = body?.entity;
+  const entities = body?.entities;
+
+  if (typeof entity === "string") {
+    if (!(entity in ENTITY_TABLES)) throw new Error("Invalid entity");
+    return [entity as EntityName];
+  }
+
+  if (Array.isArray(entities) && entities.length > 0) {
+    const valid = entities.filter((e) => typeof e === "string" && e in ENTITY_TABLES) as EntityName[];
+    if (valid.length === 0) throw new Error("Invalid entities");
+    return valid;
+  }
+
+  return Object.keys(ENTITY_TABLES) as EntityName[];
+}
+
+Deno.serve(async (req) => {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const requestedEntities = parseRequestedEntities(body);
+
+    const results = [];
+    for (const entityName of requestedEntities) {
+      const result = await syncEntity(entityName);
+      results.push(result);
+    }
+
+    const hasFailure = results.some((r) => r.status === "failed");
+    const status = hasFailure ? 207 : 200;
 
     return Response.json({
-      message: "Sync complete",
-      log_id: logId,
-      created,
-      updated,
-      skipped,
-      totalSheetRows: rows.length,
-    });
+      message: hasFailure ? "Sync completed with partial failures" : "Sync complete",
+      results,
+    }, { status });
   } catch (err: any) {
-    // Mark sync log as failed (best-effort).
-    if (logId) {
-      try {
-        await supabaseAdmin
-          .from("sync_logs")
-          .update({
-            finished_at: new Date().toISOString(),
-            status: "failed",
-            error_message: err?.message ?? String(err),
-          })
-          .eq("id", logId);
-      } catch {
-        // ignore logging errors
-      }
-    }
-
-    return Response.json({ error: err?.message ?? String(err), log_id: logId }, { status: 500 });
+    return Response.json({ error: err?.message ?? String(err) }, { status: 500 });
   }
 });

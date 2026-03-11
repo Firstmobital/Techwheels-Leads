@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { base44 } from "@/api/base44Client";
+import { supabaseApi } from "@/api/supabaseService";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { MessageSquare, Pencil, Check, X, User, Phone } from "lucide-react";
@@ -9,7 +9,7 @@ export default function GreenFormLeadRow({ lead, onUpdate }) {
   const [notes, setNotes] = useState(lead.notes || "");
 
   const saveNotes = async () => {
-    await base44.entities.GreenFormLead.update(lead.id, { notes });
+    await supabaseApi.entities.GreenFormLead.update(lead.id, { notes });
     setEditingNotes(false);
     onUpdate();
   };

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { supabaseApi } from '@/api/supabaseService';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as XLSX from 'xlsx';
 import { FileText, Plus, Pencil, Trash2, X, Check, Paperclip, ImageIcon, Loader2, Upload, Download } from 'lucide-react';
@@ -35,19 +35,19 @@ export default function TemplatesSection() {
 
   const { data: templates = [] } = useQuery({
     queryKey: ['templates'],
-    queryFn: () => base44.entities.Template.list('-day_step'),
+    queryFn: () => supabaseApi.entities.Template.list('-day_step'),
   });
 
   const createMutation = useMutation({
-    mutationFn: (data) => base44.entities.Template.create(data),
+    mutationFn: (data) => supabaseApi.entities.Template.create(data),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['templates'] }); resetForm(); },
   });
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }) => base44.entities.Template.update(id, data),
+    mutationFn: ({ id, data }) => supabaseApi.entities.Template.update(id, data),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['templates'] }); resetForm(); },
   });
   const deleteMutation = useMutation({
-    mutationFn: (id) => base44.entities.Template.delete(id),
+    mutationFn: (id) => supabaseApi.entities.Template.delete(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['templates'] }),
   });
 
@@ -67,7 +67,7 @@ export default function TemplatesSection() {
       attachments: row.attachments ? (Array.isArray(row.attachments) ? row.attachments : []) : [],
     }));
     for (const item of items) {
-      await base44.entities.Template.create(item);
+      await supabaseApi.entities.Template.create(item);
     }
     await queryClient.invalidateQueries({ queryKey: ['templates'] });
     setImporting(false);
@@ -95,7 +95,7 @@ export default function TemplatesSection() {
     setUploadingFile(true);
     const urls = [];
     for (const file of files) {
-      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+      const { file_url } = await supabaseApi.storage.uploadFile(file);
       urls.push(file_url);
     }
     setForm(prev => ({ ...prev, attachments: [...(prev.attachments || []), ...urls] }));

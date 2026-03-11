@@ -1,11 +1,12 @@
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { base44 } from '@/api/base44Client';
+import React, { useState, useMemo, useCallback } from 'react';
+import { supabaseApi } from '@/api/supabaseService';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { CarFront, Sparkles, FileText, RefreshCw, Bot } from 'lucide-react';
 import TabContent from '../components/sales/TabContent';
 import TemplatesSection from '../components/sales/TemplatesSection';
 import AILeadCard from '../components/sales/AILeadCard';
+import { useAuth } from '@/lib/AuthContext';
 
 const LEAD_TABS = [
   { id: 'vana', label: 'VNA Next Allocation', icon: CarFront, color: 'bg-amber-500 hover:bg-amber-600', entity: 'VanaLead' },
@@ -25,13 +26,8 @@ const MESSAGES = {
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('vana');
-  const [currentUser, setCurrentUser] = useState(null);
+  const { user: currentUser } = useAuth();
   const queryClient = useQueryClient();
-  const tabStateRef = useRef({});
-
-  useEffect(() => {
-    base44.auth.me().then(setCurrentUser).catch(() => {});
-  }, []);
 
   const isAdmin = currentUser?.role === 'admin';
 
@@ -46,7 +42,7 @@ export default function Home() {
     try {
       const results = await Promise.all(
         ['VanaLead', 'MatchTalkLead', 'GreenFormLead'].map(entity =>
-          base44.functions.invoke('syncFromSheets', { entity }).then(r => r.data).catch(e => ({ error: e.message, created: 0, updated: 0 }))
+          supabaseApi.functions.invoke('syncFromSheets', { entity }).then(r => r.data).catch(e => ({ error: e.message, created: 0, updated: 0 }))
         )
       );
       const totalCreated = results.reduce((s, d) => s + (d.created || 0), 0);
@@ -66,7 +62,7 @@ export default function Home() {
     setSyncingAI(true);
     setSyncAIMsg('');
     try {
-      const res = await base44.functions.invoke('syncAIGeneratedLeads', {});
+      const res = await supabaseApi.functions.invoke('syncAIGeneratedLeads', {});
       const result = res.data;
       setSyncAIMsg(result.error ? `⚠ ${result.error}` : `✓ ${result.created || 0} new · ${result.updated || 0} updated`);
       queryClient.invalidateQueries({ queryKey: ['ai-leads'] });
@@ -79,31 +75,31 @@ export default function Home() {
 
   const { data: vanaLeads = [], isLoading: vanaLoading } = useQuery({
     queryKey: ['vana-leads'],
-    queryFn: () => base44.entities.VanaLead.list('-created_date'),
+    queryFn: () => supabaseApi.entities.VanaLead.list('-created_date'),
     enabled: !!currentUser,
   });
 
   const { data: matchLeads = [], isLoading: matchLoading } = useQuery({
     queryKey: ['match-leads'],
-    queryFn: () => base44.entities.MatchTalkLead.list('-created_date'),
+    queryFn: () => supabaseApi.entities.MatchTalkLead.list('-created_date'),
     enabled: !!currentUser,
   });
 
   const { data: greenLeads = [], isLoading: greenLoading } = useQuery({
     queryKey: ['green-leads'],
-    queryFn: () => base44.entities.GreenFormLead.list('-created_date'),
+    queryFn: () => supabaseApi.entities.GreenFormLead.list('-created_date'),
     enabled: !!currentUser,
   });
 
   const { data: aiLeads = [], isLoading: aiLoading } = useQuery({
     queryKey: ['ai-leads'],
-    queryFn: () => base44.entities.AIGeneratedLead.list('-created_date'),
+    queryFn: () => supabaseApi.entities.AIGeneratedLead.list('-created_date'),
     enabled: !!currentUser,
   });
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => base44.entities.User.list(),
+    queryFn: () => supabaseApi.entities.User.list(),
     enabled: isAdmin,
   });
 
@@ -127,12 +123,12 @@ export default function Home() {
 
   const { data: sentMessages = [] } = useQuery({
     queryKey: ['sent-messages'],
-    queryFn: () => base44.entities.SentMessage.list(),
+    queryFn: () => supabaseApi.entities.SentMessage.list(),
   });
 
   const { data: allTemplates = [] } = useQuery({
     queryKey: ['templates'],
-    queryFn: () => base44.entities.Template.list(),
+    queryFn: () => supabaseApi.entities.Template.list(),
   });
 
   const sentByTab = useMemo(() => {
@@ -144,7 +140,7 @@ export default function Home() {
   }, [sentMessages]);
 
   const markSentMutation = useMutation({
-    mutationFn: ({ leadId, tab, dayStep, caName }) => base44.entities.SentMessage.create({
+    mutationFn: ({ leadId, tab, dayStep, caName }) => supabaseApi.entities.SentMessage.create({
       lead_id: leadId,
       tab: tab,
       day_step: dayStep || 1,

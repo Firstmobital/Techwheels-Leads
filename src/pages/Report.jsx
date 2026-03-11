@@ -1,45 +1,44 @@
-import React, { useMemo, useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import React, { useMemo } from 'react';
+import { supabaseApi } from '@/api/supabaseService';
 import { useQuery } from '@tanstack/react-query';
 import { BarChart2, CheckCircle2, RefreshCw, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/lib/AuthContext';
+
+const SUCCESS_STATUSES = new Set(['sent', 'success', 'delivered']);
 
 // Templates moved to Home dashboard
 export default function Report() {
   const today = new Date().toISOString().split('T')[0];
-  const [currentUser, setCurrentUser] = useState(null);
-
-  useEffect(() => {
-    base44.auth.me().then(setCurrentUser).catch(() => {});
-  }, []);
+  const { user: currentUser } = useAuth();
 
   const isAdmin = currentUser?.role === 'admin';
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => base44.entities.User.list(),
+    queryFn: () => supabaseApi.entities.User.list(),
     enabled: isAdmin,
   });
 
   const { data: sentMessages = [], isLoading, refetch } = useQuery({
     queryKey: ['sent-messages-report'],
-    queryFn: () => base44.entities.SentMessage.list('-sent_at'),
+    queryFn: () => supabaseApi.entities.SentMessage.list('-sent_at'),
     enabled: !!currentUser,
   });
 
   const { data: vanaLeads = [] } = useQuery({
     queryKey: ['vana-leads'],
-    queryFn: () => base44.entities.VanaLead.list(),
+    queryFn: () => supabaseApi.entities.VanaLead.list(),
     enabled: !!currentUser,
   });
   const { data: matchLeads = [] } = useQuery({
     queryKey: ['match-leads'],
-    queryFn: () => base44.entities.MatchTalkLead.list(),
+    queryFn: () => supabaseApi.entities.MatchTalkLead.list(),
     enabled: !!currentUser,
   });
   const { data: greenLeads = [] } = useQuery({
     queryKey: ['green-leads'],
-    queryFn: () => base44.entities.GreenFormLead.list(),
+    queryFn: () => supabaseApi.entities.GreenFormLead.list(),
     enabled: !!currentUser,
   });
 
@@ -48,43 +47,115 @@ export default function Report() {
   const filteredMessages = useMemo(() => {
     if (!currentUser) return [];
     if (isAdmin) return sentMessages;
-    return sentMessages.filter(m => m.sent_by === currentUser.email || m.created_by === currentUser.email);
+    return sentMessages.filter(m => m.sent_by === currentUser.email);
   }, [sentMessages, currentUser, isAdmin]);
 
-  const sentToday = useMemo(() =>
-    filteredMessages.filter(m => {
-      const d = (m.sent_at || m.created_date || '').split('T')[0];
-      return d === today;
-    }), [filteredMessages, today]);
+  // Group key: sent_by + date(sent_at)
+  const groupedBySenderAndDate = useMemo(() => {
+    const grouped = {};
 
-  const byPerson = useMemo(() => {
+    filteredMessages.forEach((m) => {
+      if (!m.sent_at || !m.sent_by) return;
+      const sentDate = m.sent_at.split('T')[0];
+      if (!sentDate) return;
+
+      const key = `${m.sent_by}::${sentDate}`;
+      if (!grouped[key]) {
+        grouped[key] = {
+          sent_by: m.sent_by,
+          sent_date: sentDate,
+          total_messages: 0,
+          successful_messages: 0,
+          tabs: {},
+        };
+      }
+
+      grouped[key].total_messages += 1;
+      if (SUCCESS_STATUSES.has((m.status || '').toLowerCase())) {
+        grouped[key].successful_messages += 1;
+      }
+
+      if (m.tab) {
+        grouped[key].tabs[m.tab] = (grouped[key].tabs[m.tab] || 0) + 1;
+      }
+    });
+
+    return Object.values(grouped);
+  }, [filteredMessages]);
+
+  const todayGrouped = useMemo(() => {
+    return groupedBySenderAndDate.filter(g => g.sent_date === today);
+  }, [groupedBySenderAndDate, today]);
+
+  const messagesPerUser = useMemo(() => {
     const map = {};
-    sentToday.forEach(m => {
-      const person = m.created_by || 'Unknown';
-      if (!map[person]) map[person] = { contacted: 0, tabs: {} };
-      map[person].contacted += 1;
-      map[person].tabs[m.tab] = (map[person].tabs[m.tab] || 0) + 1;
+    todayGrouped.forEach((g) => {
+      if (!map[g.sent_by]) {
+        map[g.sent_by] = {
+          sent_by: g.sent_by,
+          total_messages: 0,
+          successful_messages: 0,
+          tabs: {},
+        };
+      }
+
+      map[g.sent_by].total_messages += g.total_messages;
+      map[g.sent_by].successful_messages += g.successful_messages;
+      Object.entries(g.tabs).forEach(([tab, count]) => {
+        map[g.sent_by].tabs[tab] = (map[g.sent_by].tabs[tab] || 0) + Number(count || 0);
+      });
     });
 
     users.filter(u => u.role === 'user').forEach(u => {
-      if (!map[u.email]) map[u.email] = { contacted: 0, tabs: {} };
+      if (!map[u.email]) {
+        map[u.email] = {
+          sent_by: u.email,
+          total_messages: 0,
+          successful_messages: 0,
+          tabs: {},
+        };
+      }
     });
 
     return Object.entries(map)
       .map(([email, data]) => {
         const user = users.find(u => u.email === email);
-        return { email, name: user?.full_name || email, contacted: data.contacted, tabs: data.tabs };
+        return {
+          email,
+          name: user?.full_name || email,
+          total_messages: data.total_messages,
+          successful_messages: data.successful_messages,
+          success_rate: data.total_messages > 0
+            ? Math.round((data.successful_messages / data.total_messages) * 100)
+            : 0,
+          tabs: data.tabs,
+        };
       })
-      .sort((a, b) => b.contacted - a.contacted);
-  }, [sentToday, users]);
+      .sort((a, b) => b.total_messages - a.total_messages);
+  }, [todayGrouped, users]);
+
+  const totalMessagesSent = useMemo(
+    () => todayGrouped.reduce((sum, g) => sum + g.total_messages, 0),
+    [todayGrouped],
+  );
+
+  const successfulMessages = useMemo(
+    () => todayGrouped.reduce((sum, g) => sum + g.successful_messages, 0),
+    [todayGrouped],
+  );
+
+  const successRate = totalMessagesSent > 0
+    ? Math.round((successfulMessages / totalMessagesSent) * 100)
+    : 0;
 
   const handleDownloadCSV = () => {
-    const headers = ['Sent At', 'Tab', 'Day Step', 'Sent By', 'CA Name', 'Lead ID'];
+    const headers = ['Sent At', 'Tab', 'Day Step', 'Sent By', 'Status', 'CA Name', 'Lead ID'];
     const rows = filteredMessages.map(m => [
       m.sent_at ? new Date(m.sent_at).toLocaleString('en-IN') : '',
       m.tab || '',
       m.day_step || 1,
-      m.sent_by || m.created_by || '',
+      m.sent_by || '',
+      m.status || '',
       m.ca_name || '',
       m.lead_id || '',
     ]);
@@ -98,7 +169,7 @@ export default function Report() {
     URL.revokeObjectURL(url);
   };
 
-  const totalContacted = sentToday.length;
+  const totalContacted = totalMessagesSent;
   const totalPending = Math.max(0, totalLeads - new Set(filteredMessages.map(m => m.lead_id)).size);
 
   const tabColors = {
@@ -139,12 +210,16 @@ export default function Report() {
           </div>
           <div className="bg-emerald-50 rounded-2xl p-3 shadow-sm border border-emerald-100 text-center">
             <p className="text-2xl font-bold text-emerald-700">{totalContacted}</p>
-            <p className="text-[11px] text-emerald-500 mt-0.5">Contacted Today</p>
+            <p className="text-[11px] text-emerald-500 mt-0.5">Messages Sent Today</p>
           </div>
           <div className="bg-amber-50 rounded-2xl p-3 shadow-sm border border-amber-100 text-center">
-            <p className="text-2xl font-bold text-amber-700">{totalPending}</p>
-            <p className="text-[11px] text-amber-500 mt-0.5">Never Contacted</p>
+            <p className="text-2xl font-bold text-amber-700">{successRate}%</p>
+            <p className="text-[11px] text-amber-500 mt-0.5">Success Rate</p>
           </div>
+        </div>
+
+        <div className="bg-white rounded-2xl p-3 shadow-sm border border-gray-100 text-center">
+          <p className="text-sm text-gray-500">Pending Leads: <span className="font-semibold text-gray-900">{totalPending}</span></p>
         </div>
 
         {/* Per Salesperson */}
@@ -154,11 +229,11 @@ export default function Report() {
             <h2 className="font-semibold text-sm text-gray-800">Salesperson Performance Today</h2>
           </div>
 
-          {byPerson.length === 0 ? (
+          {messagesPerUser.length === 0 ? (
             <div className="py-10 text-center text-gray-400 text-sm">No activity yet today</div>
           ) : (
             <div className="divide-y divide-gray-50">
-              {byPerson.map((person) => (
+              {messagesPerUser.map((person) => (
                 <div key={person.email} className="px-4 py-3 flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-600 flex-shrink-0">
                     {person.name?.[0]?.toUpperCase() || '?'}
@@ -171,7 +246,7 @@ export default function Report() {
                           {tabLabels[tab] || tab}: {count}
                         </span>
                       ))}
-                      {person.contacted === 0 && (
+                      {person.total_messages === 0 && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-gray-100 text-gray-500">
                           No activity
                         </span>
@@ -180,12 +255,12 @@ export default function Report() {
                   </div>
                   <div className="text-right flex-shrink-0">
                     <div className="flex items-center gap-1 justify-end">
-                      <CheckCircle2 className={`w-3.5 h-3.5 ${person.contacted > 0 ? 'text-emerald-500' : 'text-gray-300'}`} />
-                      <span className={`text-sm font-bold ${person.contacted > 0 ? 'text-emerald-700' : 'text-gray-400'}`}>
-                        {person.contacted}
+                      <CheckCircle2 className={`w-3.5 h-3.5 ${person.total_messages > 0 ? 'text-emerald-500' : 'text-gray-300'}`} />
+                      <span className={`text-sm font-bold ${person.total_messages > 0 ? 'text-emerald-700' : 'text-gray-400'}`}>
+                        {person.total_messages}
                       </span>
                     </div>
-                    <p className="text-[10px] text-gray-400">contacted</p>
+                    <p className="text-[10px] text-gray-400">sent ({person.success_rate}% success)</p>
                   </div>
                 </div>
               ))}
@@ -200,7 +275,9 @@ export default function Report() {
           </div>
           <div className="divide-y divide-gray-50">
             {['vana', 'matchtalk', 'greenforms'].map(tab => {
-              const count = sentToday.filter(m => m.tab === tab).length;
+              const count = filteredMessages
+                .filter(m => m.sent_at && m.sent_at.split('T')[0] === today && m.tab === tab)
+                .length;
               const total = { vana: vanaLeads.length, matchtalk: matchLeads.length, greenforms: greenLeads.length }[tab];
               const pct = total > 0 ? Math.round((count / total) * 100) : 0;
               return (

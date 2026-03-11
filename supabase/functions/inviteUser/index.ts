@@ -131,32 +131,33 @@ Deno.serve(async (req: Request) => {
 
     const userId = created.user.id;
 
-    // Profile row may be auto-created by DB trigger; ensure role/email are set as requested.
-    const { data: updatedProfile, error: updateProfileError } = await supabaseAdmin
+    // Ensure profile exists immediately to avoid frontend race conditions.
+    // If a signup trigger also inserts the row, onConflict keeps this idempotent.
+    const { data: profileRow, error: upsertProfileError } = await supabaseAdmin
       .from("profiles")
-      .update({ email, role })
-      .eq("id", userId)
-      .select()
+      .upsert(
+        {
+          id: userId,
+          email,
+          role,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "id" },
+      )
+      .select("id, email, role")
       .maybeSingle();
 
-    if (updateProfileError) {
-      // Best-effort cleanup: delete created auth user if profile update fails.
+    if (upsertProfileError) {
+      // Best-effort cleanup: delete created auth user if profile upsert fails.
       await supabaseAdmin.auth.admin.deleteUser(userId).catch(() => {});
-      return jsonResponse({ error: updateProfileError.message }, { status: 500 });
+      return jsonResponse({ error: upsertProfileError.message }, { status: 500 });
     }
 
-    if (!updatedProfile) {
-      const { error: insertProfileError } = await supabaseAdmin
-        .from("profiles")
-        .insert({ id: userId, email, role, created_at: new Date().toISOString() });
-
-      if (insertProfileError) {
-        await supabaseAdmin.auth.admin.deleteUser(userId).catch(() => {});
-        return jsonResponse({ error: insertProfileError.message }, { status: 500 });
-      }
-    }
-
-    return jsonResponse({ message: "User invited successfully" });
+    return jsonResponse({
+      message: "User invited successfully",
+      user_id: userId,
+      profile: profileRow ?? null,
+    });
   } catch (err: any) {
     return jsonResponse({ error: err?.message ?? String(err) }, { status: 500 });
   }

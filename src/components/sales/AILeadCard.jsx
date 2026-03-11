@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { supabaseApi } from '@/api/supabaseService';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { User, Phone, Car, MessageSquare, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -22,7 +22,7 @@ export default function AILeadCard({ lead, currentUser, isAdmin }) {
   const isMyLead = lead.assigned_to === currentUser?.email;
 
   const takeMutation = useMutation({
-    mutationFn: () => base44.entities.AIGeneratedLead.update(lead.id, {
+    mutationFn: () => supabaseApi.entities.AIGeneratedLead.update(lead.id, {
       assigned_to: currentUser.email,
       ca_name: currentUser.full_name,
       assignment_date: new Date().toISOString(),
@@ -34,7 +34,7 @@ export default function AILeadCard({ lead, currentUser, isAdmin }) {
 
   const saveUpdate = async () => {
     setSaving(true);
-    await base44.entities.AIGeneratedLead.update(lead.id, { status, remarks });
+    await supabaseApi.entities.AIGeneratedLead.update(lead.id, { status, remarks });
     queryClient.invalidateQueries({ queryKey: ['ai-leads'] });
     setSaving(false);
   };

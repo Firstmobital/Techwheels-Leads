@@ -2,23 +2,20 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { MessageCircle, Users, BarChart2, LogOut } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import AppHeader from '@/components/shared/AppHeader';
+import { useAuth } from '@/lib/AuthContext';
 
 export default function Layout({ children, currentPageName }) {
   const [isAdmin, setIsAdmin] = useState(false);
-  const [currentUser, setCurrentUser] = useState(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const location = useLocation();
+  const { user, updateProfile, logout } = useAuth();
 
   useEffect(() => {
-    base44.auth.me().then(user => {
-      setCurrentUser(user);
-      if (user?.role === 'admin') setIsAdmin(true);
-    }).catch(() => {});
-  }, []);
+    setIsAdmin(user?.role === 'admin');
+  }, [user]);
 
   const prefersDark = useMemo(() => {
     if (typeof window === 'undefined') return false;
@@ -27,8 +24,8 @@ export default function Layout({ children, currentPageName }) {
 
   const handleDeleteAccount = async () => {
     if (window.confirm('Are you sure you want to delete your account? This cannot be undone.')) {
-      await base44.auth.updateMe({ deleted: true });
-      await base44.auth.logout();
+      await updateProfile({ deleted: true });
+      await logout();
     }
   };
 
