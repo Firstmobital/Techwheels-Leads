@@ -28,6 +28,37 @@ VITE_BASE44_APP_BASE_URL=https://my-to-do-list-81bfaad7.base44.app
 
 Run the app: `npm run dev`
 
+## Mobile Development (Expo Go)
+
+An Expo React Native app is now available in the `mobile` folder for iterative mobile testing.
+
+### First-time setup
+
+1. Install root dependencies: `npm install`
+2. Install mobile dependencies: `cd mobile && npm install`
+3. Ensure `mobile/.env` exists with:
+
+```
+EXPO_PUBLIC_SUPABASE_URL=...
+EXPO_PUBLIC_SUPABASE_ANON_KEY=...
+```
+
+You can copy from `mobile/.env.example` and fill values.
+
+### Run with Expo Go
+
+From repo root:
+
+- `npm run mobile:start` (shows QR for Expo Go)
+- `npm run mobile:android`
+- `npm run mobile:ios`
+- `npm run mobile:web`
+
+### Notes
+
+- Expo Go is for rapid testing while finalizing features.
+- Production APK/AAB/iOS builds will be generated later using Expo EAS Build.
+
 **Publish your changes**
 
 Open [Base44.com](http://Base44.com) and click on Publish.
