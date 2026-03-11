@@ -7,6 +7,8 @@ export const createAxiosClient = ({ baseURL = '', headers = {}, token } = {}) =>
   const request = async (method, url, body) => {
     const res = await fetch(`${baseURL}${url}`, {
       method,
+      mode: 'cors',
+      credentials: 'include',
       headers: {
         ...defaultHeaders,
         ...(body ? { 'Content-Type': 'application/json' } : {})

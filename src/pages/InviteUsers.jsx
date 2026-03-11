@@ -77,6 +77,8 @@ export default function InviteUsers() {
               <div className="relative flex-1">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <Input
+                  id="email-input"
+                  name="email"
                   type="email"
                   placeholder="email@example.com"
                   value={email}
@@ -96,6 +98,8 @@ export default function InviteUsers() {
             <div className="space-y-2">
               <div className="flex gap-2">
                 <Input
+                  id="ca-name-input"
+                  name="caName"
                   type="text"
                   placeholder="CA Name (e.g., Rajesh Kumar)"
                   value={caInput}

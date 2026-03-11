@@ -211,6 +211,8 @@ export default function ImportLeadsDialog({ entityName, onClose, onImported }) {
           <>
             <p className="text-sm text-gray-500 mb-4">Upload a CSV or Excel file to import leads.</p>
             <input
+              id="file-upload"
+              name="file"
               type="file"
               accept=".csv,.xlsx,.xls"
               onChange={e => setFile(e.target.files[0])}
