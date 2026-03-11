@@ -42,7 +42,7 @@ const FIELD_MAPS = {
   },
 };
 
-async function fetchSheetData(accessToken, sheetName) {
+async function fetchSheetData(accessToken: any, sheetName: string) {
   // accessToken kept for backward-compat in signature; no longer used.
   void accessToken;
   const sheets = getSheetsClient();
@@ -54,11 +54,7 @@ async function fetchSheetData(accessToken, sheetName) {
 }
 
 function getEnv(name: string): string | undefined {
-  return (
-    Deno.env.get(name) ||
-    (globalThis as any)?.process?.env?.[name] ||
-    undefined
-  );
+  return Deno.env.get(name) || (globalThis as any)?.process?.env?.[name] || undefined;
 }
 
 function requiredEnv(name: string): string {
@@ -70,9 +66,7 @@ function requiredEnv(name: string): string {
 function getSheetsClient() {
   const clientEmail = requiredEnv("GOOGLE_CLIENT_EMAIL");
   const privateKeyRaw = requiredEnv("GOOGLE_PRIVATE_KEY");
-  const privateKey = privateKeyRaw.includes("\\n")
-    ? privateKeyRaw.replace(/\\n/g, "\n")
-    : privateKeyRaw;
+  const privateKey = privateKeyRaw.includes("\\n") ? privateKeyRaw.replace(/\\n/g, "\n") : privateKeyRaw;
 
   const auth = new google.auth.GoogleAuth({
     credentials: {
@@ -95,18 +89,21 @@ function getSupabaseAdmin() {
   return createClient(url, serviceRoleKey);
 }
 
-function parseRows(values, entityName) {
+function parseRows(values: any[], entityName: keyof typeof FIELD_MAPS) {
   if (!values || values.length < 2) return [];
   const headers = values[0];
-  const fieldMap = FIELD_MAPS[entityName];
-  return values.slice(1).map(row => {
-    const record = {};
-    headers.forEach((header, i) => {
-      const fieldName = fieldMap[header];
-      if (fieldName && row[i] !== undefined && row[i] !== "") record[fieldName] = row[i];
-    });
-    return record;
-  }).filter(r => Object.keys(r).length > 0);
+  const fieldMap = (FIELD_MAPS as any)[entityName];
+  return values
+    .slice(1)
+    .map((row) => {
+      const record: Record<string, any> = {};
+      headers.forEach((header: string, i: number) => {
+        const fieldName = fieldMap[header];
+        if (fieldName && row[i] !== undefined && row[i] !== "") record[fieldName] = row[i];
+      });
+      return record;
+    })
+    .filter((r) => Object.keys(r).length > 0);
 }
 
 function buildDedupKey(record: any): string | null {
@@ -121,10 +118,10 @@ function buildDedupKey(record: any): string | null {
   return null;
 }
 
-async function syncEntity(supabaseAdmin, entityName) {
-  const config = SHEET_CONFIG[entityName];
+async function syncEntity(supabaseAdmin: any, entityName: keyof typeof SHEET_CONFIG) {
+  const config = (SHEET_CONFIG as any)[entityName];
   const values = await fetchSheetData(null, config.sheetName);
-  const rows = parseRows(values, entityName);
+  const rows = parseRows(values, entityName as any);
   if (rows.length === 0) return { created: 0, updated: 0, skipped: 0 };
 
   const table = ENTITY_TABLES[entityName];
@@ -155,8 +152,8 @@ async function syncEntity(supabaseAdmin, entityName) {
   });
 
   let skipped = 0;
-  const newRows = [];
-  const updateRows = [];
+  const newRows: any[] = [];
+  const updateRows: any[] = [];
 
   rows.forEach((row: any) => {
     const uniqueVal = (row?.[config.uniqueKey] ?? "").toString().trim();
@@ -174,7 +171,7 @@ async function syncEntity(supabaseAdmin, entityName) {
       row.phone_number ? `phone_number:${row.phone_number}` : null,
     ].filter(Boolean) as string[];
 
-    const existingRow = candidates.map(k => existingMap[k]).find(Boolean);
+    const existingRow = candidates.map((k) => existingMap[k]).find(Boolean);
     if (existingRow) {
       updateRows.push({ id: existingRow.id, ...row });
     } else {
@@ -202,21 +199,20 @@ async function syncEntity(supabaseAdmin, entityName) {
   return { created, updated, skipped };
 }
 
-Deno.serve(async (req) => {
+Deno.serve(async (_req) => {
   try {
-    // Scheduled sync: service role only (no user context)
     const supabaseAdmin = getSupabaseAdmin();
 
-    const results = {};
-    for (const entityName of ['VanaLead', 'MatchTalkLead', 'GreenFormLead']) {
+    const results: Record<string, any> = {};
+    for (const entityName of ["VanaLead", "MatchTalkLead", "GreenFormLead"] as const) {
       results[entityName] = await syncEntity(supabaseAdmin, entityName);
       console.log(`Synced ${entityName}:`, results[entityName]);
-      await new Promise(r => setTimeout(r, 3000));
+      await new Promise((r) => setTimeout(r, 3000));
     }
 
     return Response.json({ message: "All synced successfully", results });
-  } catch (error) {
-    console.error("Scheduled sync error:", error.message);
-    return Response.json({ error: error.message }, { status: 500 });
+  } catch (error: any) {
+    console.error("Scheduled sync error:", error?.message ?? error);
+    return Response.json({ error: error?.message ?? String(error) }, { status: 500 });
   }
 });
