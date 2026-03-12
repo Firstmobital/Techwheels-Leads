@@ -1,7 +1,8 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { supabase } from '@/api/supabaseClient';
 
-const AUTH_REQUEST_TIMEOUT_MS = 10000;
+const AUTH_REQUEST_TIMEOUT_MS = 30000;
+const PROFILE_TIMEOUT_MS = 30000;
 
 const withTimeout = async (promise, timeoutMs = AUTH_REQUEST_TIMEOUT_MS, errorMessage = 'Request timed out') => {
   let timeoutId;
@@ -64,7 +65,7 @@ export const AuthProvider = ({ children }) => {
           .select('*')
           .eq('id', authUser.id)
           .maybeSingle(),
-        AUTH_REQUEST_TIMEOUT_MS,
+        PROFILE_TIMEOUT_MS,
         'Profile lookup timed out'
       );
 
@@ -92,7 +93,7 @@ export const AuthProvider = ({ children }) => {
 
       const { data, error } = await withTimeout(
         supabase.auth.getSession(),
-        AUTH_REQUEST_TIMEOUT_MS,
+        PROFILE_TIMEOUT_MS,
         'Session check timed out'
       );
       if (error) throw error;

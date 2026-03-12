@@ -18,13 +18,30 @@ const SHEET_CONFIG = {
   },
   MatchTalkLead: {
     sheetName: "Match Stock",
-    leadIdCandidates: ["vc_number", "opty_id", "phone_number"],
+    leadIdCandidates: ["chassis_no", "vc_number", "opty_id", "phone_number"],
   },
   VanaLead: {
     sheetName: "VNA Next Allocation",
     leadIdCandidates: ["opty_id", "vc_number", "phone_number"],
   },
 } as const;
+
+const CORS_HEADERS: HeadersInit = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+function jsonResponse(body: unknown, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(body), {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...CORS_HEADERS,
+      ...(init.headers ?? {}),
+    },
+  });
+}
 
 const FIELD_MAPS = {
   GreenFormLead: {
@@ -59,6 +76,7 @@ const FIELD_MAPS = {
   MatchTalkLead: {
     "Chassis No": "chassis_no",
     "Chassis No.": "chassis_no",
+    "Chassis Number": "chassis_no",
     "PPL": "ppl",
     "PL": "pl",
     "Colour": "colour",
@@ -327,6 +345,14 @@ function parseRequestedEntities(body: any): EntityName[] {
 }
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: CORS_HEADERS });
+  }
+
+  if (req.method !== "POST") {
+    return jsonResponse({ error: "Method not allowed" }, { status: 405 });
+  }
+
   try {
     const body = await req.json().catch(() => ({}));
     const requestedEntities = parseRequestedEntities(body);
@@ -340,11 +366,11 @@ Deno.serve(async (req) => {
     const hasFailure = results.some((r) => r.status === "failed");
     const status = hasFailure ? 207 : 200;
 
-    return Response.json({
+    return jsonResponse({
       message: hasFailure ? "Sync completed with partial failures" : "Sync complete",
       results,
     }, { status });
   } catch (err: any) {
-    return Response.json({ error: err?.message ?? String(err) }, { status: 500 });
+    return jsonResponse({ error: err?.message ?? String(err) }, { status: 500 });
   }
 });

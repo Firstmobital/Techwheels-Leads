@@ -12,6 +12,23 @@ const FIELD_MAP: Record<string, string> = {
   chat_details: "chat_details",
 };
 
+const CORS_HEADERS: HeadersInit = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+function jsonResponse(body: unknown, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(body), {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...CORS_HEADERS,
+      ...(init.headers ?? {}),
+    },
+  });
+}
+
 function getEnv(name: string): string | undefined {
   return Deno.env.get(name) || (globalThis as any)?.process?.env?.[name] || undefined;
 }
@@ -85,11 +102,19 @@ async function assertAdmin(req: Request, supabaseAdmin: ReturnType<typeof create
 }
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: CORS_HEADERS });
+  }
+
+  if (req.method !== "POST") {
+    return jsonResponse({ error: "Method not allowed" }, { status: 405 });
+  }
+
   try {
     const supabaseAdmin = getSupabaseAdmin();
     const adminCheck = await assertAdmin(req, supabaseAdmin);
     if (!adminCheck.ok) {
-      return Response.json({ error: adminCheck.error }, { status: adminCheck.status });
+      return jsonResponse({ error: adminCheck.error }, { status: adminCheck.status });
     }
 
     const sheets = getSheetsClient();
@@ -107,7 +132,7 @@ Deno.serve(async (req) => {
 
     const values = valueRes.data.values;
     if (!values || values.length < 2) {
-      return Response.json({ created: 0, updated: 0, skipped: 0, totalRows: 0 });
+      return jsonResponse({ created: 0, updated: 0, skipped: 0, totalRows: 0 });
     }
 
     const rawHeaders = values[0].map((h) => h.trim().toLowerCase().replace(/\s+/g, "_"));
@@ -134,7 +159,7 @@ Deno.serve(async (req) => {
       .select("*")
       .range(0, 9999);
     if (existingError) {
-      return Response.json({ error: existingError.message }, { status: 500 });
+      return jsonResponse({ error: existingError.message }, { status: 500 });
     }
 
     const existingByPhone: Record<string, any> = {};
@@ -174,13 +199,13 @@ Deno.serve(async (req) => {
           .from("ai_generated_leads")
           .upsert(batch, { onConflict: "phone_number" });
         if (error) {
-          return Response.json({ error: error.message }, { status: 500 });
+          return jsonResponse({ error: error.message }, { status: 500 });
         }
       }
     }
 
-    return Response.json({ created, updated, skipped, skippedEmpty, totalRows: rows.length, headers: rawHeaders });
+    return jsonResponse({ created, updated, skipped, skippedEmpty, totalRows: rows.length, headers: rawHeaders });
   } catch (err: any) {
-    return Response.json({ error: err?.message ?? String(err) }, { status: 500 });
+    return jsonResponse({ error: err?.message ?? String(err) }, { status: 500 });
   }
 });
