@@ -526,7 +526,13 @@ export default function HomeScreen() {
     setSyncStatus("");
 
     try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const { data, error } = await supabase.functions.invoke("syncAIGeneratedLeads", {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
         body: {},
       });
 
@@ -553,12 +559,23 @@ export default function HomeScreen() {
     setSyncStatus("");
 
     try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const entities = ["VanaLead", "MatchTalkLead", "GreenFormLead"];
       const results = await Promise.all(
         entities.map((entity) =>
           supabase.functions
-            .invoke("syncFromSheets", { body: { entity } })
-            .then((res) => res?.data ?? {})
+            .invoke("syncFromSheets", {
+              headers: {
+                Authorization: `Bearer ${session.access_token}`,
+              },
+              body: { entity },
+            })
+            .then(({ data, error }) => {
+              if (error) throw error;
+              return data ?? {};
+            })
             .catch((error) => ({
               error: error.message || "Failed",
               rows_inserted: 0,

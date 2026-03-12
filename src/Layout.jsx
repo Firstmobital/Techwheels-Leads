@@ -9,9 +9,9 @@ import { useAuth } from '@/lib/AuthContext';
 
 export default function Layout({ children, currentPageName }) {
   const [isAdmin, setIsAdmin] = useState(false);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const location = useLocation();
-  const { user, updateProfile, logout } = useAuth();
+  const { user, logout } = useAuth();
 
   useEffect(() => {
     setIsAdmin(user?.role === 'admin');
@@ -22,11 +22,9 @@ export default function Layout({ children, currentPageName }) {
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
   }, []);
 
-  const handleDeleteAccount = async () => {
-    if (window.confirm('Are you sure you want to delete your account? This cannot be undone.')) {
-      await updateProfile({ deleted: true });
-      await logout();
-    }
+  const handleLogout = async () => {
+    await logout();
+    setShowLogoutDialog(false);
   };
 
   const isHome = currentPageName === 'Home';
@@ -80,7 +78,7 @@ export default function Layout({ children, currentPageName }) {
         )}
         {!isHome && (
           <button
-            onClick={() => setShowDeleteDialog(true)}
+            onClick={() => setShowLogoutDialog(true)}
             className="flex flex-col items-center gap-1 px-4 py-2 rounded-xl text-xs font-medium text-red-500 hover:bg-red-50 transition-all user-select-none"
           >
             <LogOut className="w-5 h-5" />
@@ -89,30 +87,30 @@ export default function Layout({ children, currentPageName }) {
         )}
       </div>
 
-      {/* Delete Account Dialog */}
-      {showDeleteDialog && (
+      {/* Logout Dialog */}
+      {showLogoutDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             className="bg-white rounded-2xl p-6 max-w-sm mx-4 shadow-lg"
           >
-            <h2 className="text-lg font-bold text-gray-900 mb-2">Delete Account?</h2>
+            <h2 className="text-lg font-bold text-gray-900 mb-2">Log out?</h2>
             <p className="text-sm text-gray-600 mb-6">
-              This action cannot be undone. Your account and all associated data will be permanently deleted.
+              You will be signed out and redirected to the login page.
             </p>
             <div className="flex gap-3">
               <button
-                onClick={() => setShowDeleteDialog(false)}
+                onClick={() => setShowLogoutDialog(false)}
                 className="flex-1 py-2 px-4 rounded-lg border border-gray-200 text-gray-700 font-medium hover:bg-gray-50"
               >
                 Cancel
               </button>
               <button
-                onClick={handleDeleteAccount}
+                onClick={handleLogout}
                 className="flex-1 py-2 px-4 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium"
               >
-                Delete
+                Log out
               </button>
             </div>
           </motion.div>

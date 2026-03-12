@@ -58,6 +58,11 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const hydrateUser = async (authUser) => {
+    const fallbackProfile = {
+      id: authUser.id,
+      role: 'user',
+    };
+
     try {
       const { data: profile, error: profileError } = await withTimeout(
         supabase
@@ -70,15 +75,19 @@ export const AuthProvider = ({ children }) => {
       );
 
       if (profileError) {
-        throw profileError;
+        console.error('Failed to hydrate auth user:', profileError);
+        setUser(fallbackProfile);
+        setIsAuthenticated(true);
+        setAuthError(null);
+        return;
       }
 
-      setUser({ ...(profile || {}), id: authUser.id, email: authUser.email });
+      setUser({ ...fallbackProfile, ...(profile || {}) });
       setIsAuthenticated(true);
       setAuthError(null);
     } catch (error) {
       console.error('Failed to hydrate auth user:', error);
-      setUser({ id: authUser.id, email: authUser.email });
+      setUser(fallbackProfile);
       setIsAuthenticated(true);
       setAuthError(null);
     } finally {
@@ -107,12 +116,18 @@ export const AuthProvider = ({ children }) => {
         return;
       }
 
-      await hydrateUser(session.user);
+      try {
+        await hydrateUser(session.user);
+      } catch (error) {
+        console.error('Failed to hydrate auth user:', error);
+        setUser({ id: session.user.id, role: 'user' });
+        setIsAuthenticated(true);
+        setAuthError(null);
+        setIsLoadingAuth(false);
+      }
     } catch (error) {
       console.error('Session check failed:', error);
-      setUser(null);
-      setIsAuthenticated(false);
-      setAuthError({ type: 'auth_required', message: 'Authentication required' });
+      setAuthError(null);
       setIsLoadingAuth(false);
     }
   };

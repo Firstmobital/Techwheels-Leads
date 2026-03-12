@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { supabaseApi } from '@/api/supabaseService';
+import { supabase } from '@/api/supabaseClient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { CarFront, Sparkles, FileText, RefreshCw, Bot } from 'lucide-react';
@@ -42,11 +43,21 @@ export default function Home() {
     setSyncing(true);
     setSyncMsg('');
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const results = await Promise.all(
         ['VanaLead', 'MatchTalkLead', 'GreenFormLead'].map(entity =>
-          supabaseApi.functions.invoke('syncFromSheets', {
-  body: { entity }
-}).then(r => r?.data ?? {}).catch(e => ({ error: e.message, rows_inserted: 0, rows_updated: 0, rows_processed: 0, rows_skipped: 0 }))
+          supabase.functions
+            .invoke('syncFromSheets', {
+              headers: {
+                Authorization: `Bearer ${session.access_token}`,
+              },
+              body: { entity },
+            })
+            .then(({ data, error }) => {
+              if (error) throw error;
+              return data ?? {};
+            })
+            .catch(e => ({ error: e.message, rows_inserted: 0, rows_updated: 0, rows_processed: 0, rows_skipped: 0 }))
         )
       );
       const totalInserted = results.reduce((s, d) => s + Number(d?.rows_inserted || 0), 0);
@@ -69,8 +80,15 @@ export default function Home() {
     setSyncingAI(true);
     setSyncAIMsg('');
     try {
-      const res = await supabaseApi.functions.invoke('syncAIGeneratedLeads', {});
-      const result = res?.data ?? {};
+      const { data: { session } } = await supabase.auth.getSession();
+      const { data, error } = await supabase.functions.invoke('syncAIGeneratedLeads', {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: {},
+      });
+      if (error) throw error;
+      const result = data ?? {};
       setSyncAIMsg(
         result.error
           ? `⚠ ${result.error}`

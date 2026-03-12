@@ -46,7 +46,11 @@ export default function SyncMonitoring() {
 
   const runSyncMutation = useMutation({
     mutationFn: async () => {
+      const { data: { session } } = await supabase.auth.getSession();
       const { data, error: invokeError } = await supabase.functions.invoke('syncFromSheets', {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
         body: {},
       });
       if (invokeError) throw invokeError;

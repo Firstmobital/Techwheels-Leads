@@ -18,7 +18,14 @@ const SHEET_CONFIG = {
   },
   MatchTalkLead: {
     sheetName: "Match Stock",
-    leadIdCandidates: ["chassis_no", "vc_number", "opty_id", "phone_number"],
+    leadIdCandidates: [
+      "chassis_no",
+      "opty_id",
+      "vc",
+      "vc_number",
+      "mobile_no",
+      "phone_number",
+    ],
   },
   VanaLead: {
     sheetName: "VNA Next Allocation",
@@ -175,27 +182,8 @@ async function isAuthorizedRequest(req: Request): Promise<boolean> {
   const token = getBearerToken(authHeader);
   if (!token) return false;
 
-  const serviceRoleKey = getServiceRoleKey();
-  if (serviceRoleKey && token === serviceRoleKey) {
-    return true;
-  }
-
   const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token);
-  if (userError || !userData?.user) {
-    return false;
-  }
-
-  const { data: profile, error: profileError } = await supabaseAdmin
-    .from("profiles")
-    .select("role")
-    .eq("id", userData.user.id)
-    .maybeSingle();
-
-  if (profileError || !profile || profile.role !== "admin") {
-    return false;
-  }
-
-  return true;
+  return !(userError || !userData?.user);
 }
 
 async function fetchSheetData(sheetName: string) {
@@ -320,7 +308,13 @@ async function syncEntity(entityName: EntityName) {
     rowsProcessed = parsed.length;
     const withLeadId = parsed
       .map((row) => ({ ...row, lead_id: buildLeadId(entityName, row) }))
-      .filter((row) => !!row.lead_id);
+      .filter((row) => {
+        if (!row.lead_id) {
+          console.warn("Dropped row without lead_id:", row);
+          return false;
+        }
+        return true;
+      });
     const payload = dedupeByLeadId(withLeadId);
 
     const skipped = parsed.length - payload.length;
