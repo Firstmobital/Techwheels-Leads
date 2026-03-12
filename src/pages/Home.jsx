@@ -29,7 +29,7 @@ const MESSAGES = {
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('vana');
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, isLoadingAuth } = useAuth();
   const queryClient = useQueryClient();
 
   const isAdmin = currentUser?.role === 'admin';
@@ -39,18 +39,22 @@ export default function Home() {
   const [syncingAI, setSyncingAI] = useState(false);
   const [syncAIMsg, setSyncAIMsg] = useState('');
 
+  if (isLoadingAuth) {
+    return <div>Loading...</div>;
+  }
+
   const handleSyncAll = async () => {
     setSyncing(true);
     setSyncMsg('');
     try {
       const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('User not authenticated yet');
+      }
       const results = await Promise.all(
         ['VanaLead', 'MatchTalkLead', 'GreenFormLead'].map(entity =>
           supabase.functions
             .invoke('syncFromSheets', {
-              headers: {
-                Authorization: `Bearer ${session.access_token}`,
-              },
               body: { entity },
             })
             .then(({ data, error }) => {

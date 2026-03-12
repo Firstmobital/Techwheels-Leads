@@ -21,9 +21,7 @@ const SHEET_CONFIG = {
     leadIdCandidates: [
       "chassis_no",
       "opty_id",
-      "vc",
       "vc_number",
-      "mobile_no",
       "phone_number",
     ],
   },
@@ -131,7 +129,7 @@ const FIELD_MAPS = {
     "TL Name": "tl_name",
     "Allocation Status": "allocation_status",
   },
-};
+} as const;
 
 function requiredEnv(name: string): string {
   const val = Deno.env.get(name);
@@ -168,22 +166,20 @@ function getBearerToken(authHeader: string | null): string | null {
   return match?.[1] ?? null;
 }
 
-function getServiceRoleKey(): string | null {
-  return (
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ||
-    Deno.env.get("SUPABASE_SERVICE_ROLE") ||
-    Deno.env.get("SUPABASE_SERVICE_KEY") ||
-    null
-  );
-}
-
 async function isAuthorizedRequest(req: Request): Promise<boolean> {
-  const authHeader = req.headers.get("Authorization") ?? req.headers.get("authorization");
-  const token = getBearerToken(authHeader);
-  if (!token) return false;
+  const authHeader =
+    req.headers.get("Authorization") ||
+    req.headers.get("authorization");
 
-  const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token);
-  return !(userError || !userData?.user);
+  if (!authHeader) return false;
+
+  const token = authHeader.replace("Bearer ", "");
+
+  const { data, error } = await supabaseAdmin.auth.getUser(token);
+
+  if (error || !data?.user) return false;
+
+  return true;
 }
 
 async function fetchSheetData(sheetName: string) {
@@ -198,20 +194,41 @@ function normalizeHeader(h: string) {
   return h.trim().replace(/\s+/g, " ");
 }
 
+function isBlankRow(row: any[]) {
+  return !row.some((cell) => String(cell ?? "").trim() !== "");
+}
+
+function isDuplicateHeaderRow(row: any[], headers: string[]) {
+  if (!row || row.length === 0) return false;
+
+  const normalizedRow = row.map((cell) => normalizeHeader(String(cell ?? "")));
+  let matches = 0;
+
+  for (let i = 0; i < Math.min(headers.length, normalizedRow.length); i += 1) {
+    if (normalizedRow[i] && normalizedRow[i] === headers[i]) {
+      matches += 1;
+    }
+  }
+
+  return matches >= Math.min(3, headers.length);
+}
+
 function parseRows(values: any[], entityName: EntityName) {
   if (values.length < 2) return [];
 
-  const headers = values[0].map(normalizeHeader);
+  const headers = values[0].map((h: string) => normalizeHeader(String(h ?? "")));
   const fieldMap = FIELD_MAPS[entityName] as Record<string, string>;
 
   return values
     .slice(1)
+    .filter((row) => !isBlankRow(row))
+    .filter((row) => !isDuplicateHeaderRow(row, headers))
     .map((row) => {
       const record: Record<string, any> = {};
 
       headers.forEach((header: string, i: number) => {
         const field = fieldMap[header];
-        const val = (row[i] || "").toString().trim();
+        const val = String(row[i] ?? "").trim();
 
         if (field && val) {
           record[field] = val;
@@ -268,9 +285,12 @@ async function createSyncLog(entityName: EntityName, startedAt: string) {
 
 async function finishSyncLog(logId: string | null, payload: any) {
   if (!logId) return;
-  const { error } = await supabaseAdmin.from("sync_logs").update(payload).eq("id", logId);
 
-  // Backward compatibility: some environments may not have duration_ms yet.
+  const { error } = await supabaseAdmin
+    .from("sync_logs")
+    .update(payload)
+    .eq("id", logId);
+
   if (error && payload?.duration_ms !== undefined && /duration_ms|column/i.test(error.message)) {
     const { duration_ms, ...fallbackPayload } = payload;
     const { error: fallbackError } = await supabaseAdmin
@@ -306,6 +326,7 @@ async function syncEntity(entityName: EntityName) {
     const values = await fetchSheetData(sheetName);
     const parsed = parseRows(values, entityName);
     rowsProcessed = parsed.length;
+
     const withLeadId = parsed
       .map((row) => ({ ...row, lead_id: buildLeadId(entityName, row) }))
       .filter((row) => {
@@ -315,12 +336,12 @@ async function syncEntity(entityName: EntityName) {
         }
         return true;
       });
+
     const payload = dedupeByLeadId(withLeadId);
+    rowsSkipped = parsed.length - payload.length;
 
-    const skipped = parsed.length - payload.length;
-    rowsSkipped = skipped;
+    const existingLeadIds = new Set<string>();
 
-    let existingLeadIds = new Set<string>();
     if (payload.length > 0) {
       const ids = payload.map((r) => r.lead_id as string);
       const CHUNK = 500;
@@ -349,10 +370,8 @@ async function syncEntity(entityName: EntityName) {
       }
     }
 
-    const updated = payload.filter((r) => existingLeadIds.has(r.lead_id)).length;
-    const inserted = payload.length - updated;
-    rowsUpdated = updated;
-    rowsInserted = inserted;
+    rowsUpdated = payload.filter((r) => existingLeadIds.has(r.lead_id)).length;
+    rowsInserted = payload.length - rowsUpdated;
 
     const finishedAtDate = new Date();
     const finishedAt = finishedAtDate.toISOString();
@@ -461,10 +480,13 @@ Deno.serve(async (req: Request) => {
     const hasFailure = results.some((r) => r.status === "failed");
     const status = hasFailure ? 207 : 200;
 
-    return jsonResponse({
-      message: hasFailure ? "Sync completed with partial failures" : "Sync complete",
-      results,
-    }, { status });
+    return jsonResponse(
+      {
+        message: hasFailure ? "Sync completed with partial failures" : "Sync complete",
+        results,
+      },
+      { status },
+    );
   } catch (err: any) {
     return jsonResponse({ error: err?.message ?? String(err) }, { status: 500 });
   }

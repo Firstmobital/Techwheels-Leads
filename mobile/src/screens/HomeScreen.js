@@ -60,7 +60,7 @@ const TABS = [
 ];
 
 export default function HomeScreen() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, isLoadingAuth } = useAuth();
   const [activeTab, setActiveTab] = useState("vana");
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -562,14 +562,14 @@ export default function HomeScreen() {
       const {
         data: { session },
       } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error("User not authenticated yet");
+      }
       const entities = ["VanaLead", "MatchTalkLead", "GreenFormLead"];
       const results = await Promise.all(
         entities.map((entity) =>
           supabase.functions
             .invoke("syncFromSheets", {
-              headers: {
-                Authorization: `Bearer ${session.access_token}`,
-              },
               body: { entity },
             })
             .then(({ data, error }) => {
@@ -609,6 +609,16 @@ export default function HomeScreen() {
       setSyncingAll(false);
     }
   };
+
+  if (isLoadingAuth) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.container}>
+          <Text style={styles.subtitle}>Loading...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>

@@ -1,8 +1,8 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { supabase } from '@/api/supabaseClient';
 
-const AUTH_REQUEST_TIMEOUT_MS = 30000;
-const PROFILE_TIMEOUT_MS = 30000;
+const AUTH_REQUEST_TIMEOUT_MS = 60000;
+const PROFILE_TIMEOUT_MS = 60000;
 
 const withTimeout = async (promise, timeoutMs = AUTH_REQUEST_TIMEOUT_MS, errorMessage = 'Request timed out') => {
   let timeoutId;

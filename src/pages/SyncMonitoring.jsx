@@ -17,7 +17,7 @@ function asNumber(value) {
 }
 
 export default function SyncMonitoring() {
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, isLoadingAuth } = useAuth();
   const queryClient = useQueryClient();
   const isAdmin = currentUser?.role === 'admin';
 
@@ -47,10 +47,10 @@ export default function SyncMonitoring() {
   const runSyncMutation = useMutation({
     mutationFn: async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      const { data, error: invokeError } = await supabase.functions.invoke('syncFromSheets', {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
+      if (!session) {
+        throw new Error('User not authenticated yet');
+      }
+      const { data, error: invokeError } = await supabase.functions.invoke("syncFromSheets", {
         body: {},
       });
       if (invokeError) throw invokeError;
@@ -60,6 +60,10 @@ export default function SyncMonitoring() {
       await queryClient.invalidateQueries({ queryKey: ['sync-logs'] });
     },
   });
+
+  if (isLoadingAuth) {
+    return <div>Loading...</div>;
+  }
 
   if (!currentUser) {
     return (
