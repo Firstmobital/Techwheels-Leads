@@ -90,8 +90,8 @@ CREATE OR REPLACE FUNCTION "public"."handle_new_user"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
 BEGIN
-  INSERT INTO public.profiles (id, email, role, ca_names)
-  VALUES (new.id, new.email, 'user', '{}');
+  INSERT INTO public.profiles (id, email, full_name, role, ca_names)
+  VALUES (new.id, new.email, new.email, 'user', '{}');
   RETURN new;
 END;
 $$;
@@ -285,7 +285,8 @@ CREATE TABLE IF NOT EXISTS "public"."profiles" (
     "role" "text" DEFAULT 'user'::"text",
     "ca_names" "text"[] DEFAULT '{}'::"text"[],
     "created_at" timestamp with time zone DEFAULT "now"(),
-    "updated_at" timestamp with time zone DEFAULT "now"()
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    "full_name" "text"
 );
 
 
@@ -301,7 +302,8 @@ CREATE TABLE IF NOT EXISTS "public"."sent_messages" (
     "sent_by" "text",
     "sent_at" timestamp with time zone DEFAULT "now"(),
     "created_at" timestamp with time zone DEFAULT "now"(),
-    "updated_at" timestamp with time zone DEFAULT "now"()
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    "status" "text" DEFAULT 'sent'::"text"
 );
 
 
