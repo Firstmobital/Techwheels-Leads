@@ -5,7 +5,7 @@ import { BarChart2, CheckCircle2, RefreshCw, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/AuthContext';
 
-const SUCCESS_STATUSES = new Set(['sent', 'success', 'delivered']);
+const SUCCESS_STATUSES = new Set(['sent']);
 
 // Templates moved to Home dashboard
 export default function Report() {
@@ -71,7 +71,7 @@ export default function Report() {
       }
 
       grouped[key].total_messages += 1;
-      if (SUCCESS_STATUSES.has((m.status || '').toLowerCase())) {
+      if (SUCCESS_STATUSES.has((m.status ?? 'sent').toLowerCase())) {
         grouped[key].successful_messages += 1;
       }
 
@@ -122,7 +122,7 @@ export default function Report() {
         const user = users.find(u => u.email === email);
         return {
           email,
-          name: user?.full_name || email,
+          name: user?.full_name ?? email,
           total_messages: data.total_messages,
           successful_messages: data.successful_messages,
           success_rate: data.total_messages > 0
@@ -155,7 +155,7 @@ export default function Report() {
       m.tab || '',
       m.day_step || 1,
       m.sent_by || '',
-      m.status || '',
+      m.status ?? 'sent',
       m.ca_name || '',
       m.lead_id || '',
     ]);

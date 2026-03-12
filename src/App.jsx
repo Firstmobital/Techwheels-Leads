@@ -7,10 +7,13 @@ import PageNotFound from './lib/PageNotFound';
 import Login from './pages/Login';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 
-const { Pages, Layout, mainPage } = pagesConfig;
+const { Pages, Layout, mainPage, routes = [] } = pagesConfig;
 const mainPageKey = mainPage ?? Object.keys(Pages)[0];
 const MainPage = mainPageKey ? Pages[mainPageKey] : <></>;
 const loginPath = import.meta.env.VITE_LOGIN_PATH || '/login';
+const normalizedRoutes = Array.isArray(routes) && routes.length > 0
+  ? routes
+  : Object.entries(Pages).map(([path, component]) => ({ path: `/${path}`, component, title: path }));
 
 const LayoutWrapper = ({ children, currentPageName }) => Layout ?
   <Layout currentPageName={currentPageName}>{children}</Layout>
@@ -44,13 +47,18 @@ const AuthenticatedApp = () => {
           <Navigate to={loginPath} replace />
         )
       } />
-      {Object.entries(Pages).map(([path, Page]) => (
+      {normalizedRoutes.map((route) => {
+        const routePath = route?.path || '/';
+        const Page = route?.component;
+        const currentPageName = route?.title || routePath.replace(/^\//, '');
+        if (!Page) return null;
+        return (
         <Route
-          key={path}
-          path={`/${path}`}
+          key={routePath}
+          path={routePath}
           element={
             isAuthenticated ? (
-              <LayoutWrapper currentPageName={path}>
+              <LayoutWrapper currentPageName={currentPageName}>
                 <Page />
               </LayoutWrapper>
             ) : (
@@ -58,7 +66,7 @@ const AuthenticatedApp = () => {
             )
           }
         />
-      ))}
+      )})}
       <Route
         path="*"
         element={isAuthenticated ? <PageNotFound /> : <Navigate to={loginPath} replace />}

@@ -42,7 +42,7 @@ export default function Templates() {
   });
 
   const pplOptions = greenformLeads.length > 0 
-    ? [...new Set(greenformLeads.map(l => l.data?.ppl).filter(Boolean))].sort()
+      ? [...new Set(greenformLeads.map(l => l.ppl).filter(Boolean))].sort()
     : [];
 
   const createMutation = useMutation({

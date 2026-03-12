@@ -155,6 +155,49 @@ const auth = new google.auth.GoogleAuth({
 
 const sheets = google.sheets({ version: "v4", auth });
 
+function getBearerToken(authHeader: string | null): string | null {
+  if (!authHeader) return null;
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  return match?.[1] ?? null;
+}
+
+function getServiceRoleKey(): string | null {
+  return (
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ||
+    Deno.env.get("SUPABASE_SERVICE_ROLE") ||
+    Deno.env.get("SUPABASE_SERVICE_KEY") ||
+    null
+  );
+}
+
+async function isAuthorizedRequest(req: Request): Promise<boolean> {
+  const authHeader = req.headers.get("Authorization") ?? req.headers.get("authorization");
+  const token = getBearerToken(authHeader);
+  if (!token) return false;
+
+  const serviceRoleKey = getServiceRoleKey();
+  if (serviceRoleKey && token === serviceRoleKey) {
+    return true;
+  }
+
+  const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token);
+  if (userError || !userData?.user) {
+    return false;
+  }
+
+  const { data: profile, error: profileError } = await supabaseAdmin
+    .from("profiles")
+    .select("role")
+    .eq("id", userData.user.id)
+    .maybeSingle();
+
+  if (profileError || !profile || profile.role !== "admin") {
+    return false;
+  }
+
+  return true;
+}
+
 async function fetchSheetData(sheetName: string) {
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
@@ -220,12 +263,12 @@ function dedupeByLeadId(rows: Record<string, any>[]) {
   return Array.from(map.values());
 }
 
-async function createSyncLog(entityName: EntityName) {
+async function createSyncLog(entityName: EntityName, startedAt: string) {
   const { data, error } = await supabaseAdmin
     .from("sync_logs")
     .insert({
       entity: entityName,
-      started_at: new Date().toISOString(),
+      started_at: startedAt,
       status: "running",
     })
     .select("id")
@@ -235,25 +278,53 @@ async function createSyncLog(entityName: EntityName) {
   return data?.id ?? null;
 }
 
-async function finishSyncLog(logId: string | null, payload: Record<string, unknown>) {
+async function finishSyncLog(logId: string | null, payload: any) {
   if (!logId) return;
-  await supabaseAdmin.from("sync_logs").update(payload).eq("id", logId);
+  const { error } = await supabaseAdmin.from("sync_logs").update(payload).eq("id", logId);
+
+  // Backward compatibility: some environments may not have duration_ms yet.
+  if (error && payload?.duration_ms !== undefined && /duration_ms|column/i.test(error.message)) {
+    const { duration_ms, ...fallbackPayload } = payload;
+    const { error: fallbackError } = await supabaseAdmin
+      .from("sync_logs")
+      .update(fallbackPayload)
+      .eq("id", logId);
+
+    if (fallbackError) {
+      throw new Error(`sync_logs update failed: ${fallbackError.message}`);
+    }
+    return;
+  }
+
+  if (error) {
+    throw new Error(`sync_logs update failed: ${error.message}`);
+  }
 }
 
 async function syncEntity(entityName: EntityName) {
   const table = ENTITY_TABLES[entityName];
   const sheetName = SHEET_CONFIG[entityName].sheetName;
-  const logId = await createSyncLog(entityName);
+  const startedAtDate = new Date();
+  const startedAt = startedAtDate.toISOString();
+  const startedAtMs = startedAtDate.getTime();
+  const logId = await createSyncLog(entityName, startedAt);
+
+  let rowsProcessed = 0;
+  let rowsInserted = 0;
+  let rowsUpdated = 0;
+  let rowsSkipped = 0;
 
   try {
     const values = await fetchSheetData(sheetName);
     const parsed = parseRows(values, entityName);
+    rowsProcessed = parsed.length;
     const withLeadId = parsed
       .map((row) => ({ ...row, lead_id: buildLeadId(entityName, row) }))
       .filter((row) => !!row.lead_id);
     const payload = dedupeByLeadId(withLeadId);
 
     const skipped = parsed.length - payload.length;
+    rowsSkipped = skipped;
 
     let existingLeadIds = new Set<string>();
     if (payload.length > 0) {
@@ -286,13 +357,20 @@ async function syncEntity(entityName: EntityName) {
 
     const updated = payload.filter((r) => existingLeadIds.has(r.lead_id)).length;
     const inserted = payload.length - updated;
+    rowsUpdated = updated;
+    rowsInserted = inserted;
+
+    const finishedAtDate = new Date();
+    const finishedAt = finishedAtDate.toISOString();
+    const durationMs = finishedAtDate.getTime() - startedAtMs;
 
     await finishSyncLog(logId, {
-      finished_at: new Date().toISOString(),
-      rows_processed: parsed.length,
-      rows_inserted: inserted,
-      rows_updated: updated,
-      rows_skipped: skipped,
+      finished_at: finishedAt,
+      rows_processed: rowsProcessed,
+      rows_inserted: rowsInserted,
+      rows_updated: rowsUpdated,
+      rows_skipped: rowsSkipped,
+      duration_ms: durationMs,
       status: "success",
       error_message: null,
     });
@@ -302,15 +380,24 @@ async function syncEntity(entityName: EntityName) {
       table,
       sheet: sheetName,
       log_id: logId,
-      rows_processed: parsed.length,
-      rows_inserted: inserted,
-      rows_updated: updated,
-      rows_skipped: skipped,
+      rows_processed: rowsProcessed,
+      rows_inserted: rowsInserted,
+      rows_updated: rowsUpdated,
+      rows_skipped: rowsSkipped,
       status: "success",
     };
   } catch (error: any) {
+    const finishedAtDate = new Date();
+    const finishedAt = finishedAtDate.toISOString();
+    const durationMs = finishedAtDate.getTime() - startedAtMs;
+
     await finishSyncLog(logId, {
-      finished_at: new Date().toISOString(),
+      finished_at: finishedAt,
+      rows_processed: rowsProcessed,
+      rows_inserted: rowsInserted,
+      rows_updated: rowsUpdated,
+      rows_skipped: rowsSkipped,
+      duration_ms: durationMs,
       status: "failed",
       error_message: error?.message ?? String(error),
     });
@@ -344,13 +431,27 @@ function parseRequestedEntities(body: any): EntityName[] {
   return Object.keys(ENTITY_TABLES) as EntityName[];
 }
 
-Deno.serve(async (req) => {
+Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: CORS_HEADERS });
   }
 
   if (req.method !== "POST") {
     return jsonResponse({ error: "Method not allowed" }, { status: 405 });
+  }
+
+  const isAuthorized = await isAuthorizedRequest(req);
+  if (!isAuthorized) {
+    return new Response(
+      JSON.stringify({ error: "Unauthorized" }),
+      {
+        status: 401,
+        headers: {
+          "Content-Type": "application/json",
+          ...CORS_HEADERS,
+        },
+      },
+    );
   }
 
   try {

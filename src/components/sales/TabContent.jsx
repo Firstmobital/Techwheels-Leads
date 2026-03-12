@@ -25,12 +25,12 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
     const models = new Set();
     if (tab === 'matchtalk') {
       leads.forEach(l => {
-        const leadData = l.data || l;
+        const leadData = l;
         leadData.ppl && models.add(leadData.ppl);
       });
     } else {
       leads.forEach(l => {
-        const leadData = l.data || l;
+        const leadData = l;
         leadData.car_model && models.add(leadData.car_model);
       });
     }
@@ -41,7 +41,7 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
     if (tab !== 'greenforms') return [];
     const vals = new Set();
     leads.forEach(l => {
-      const leadData = l.data || l;
+      const leadData = l;
       leadData.ppl && vals.add(leadData.ppl);
     });
     return [...vals].sort();
@@ -51,7 +51,7 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
     if (tab !== 'greenforms') return [];
     const vals = new Set();
     leads.forEach(l => {
-      const leadData = l.data || l;
+      const leadData = l;
       leadData.source_pv && vals.add(leadData.source_pv);
     });
     return [...vals].sort();
@@ -61,7 +61,7 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
     if (tab === 'greenforms') return [];
     const vals = new Set();
     leads.forEach(l => {
-      const leadData = l.data || l;
+      const leadData = l;
       leadData.branch && vals.add(leadData.branch);
     });
     return [...vals].sort();
@@ -70,7 +70,7 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
   const caOptions = useMemo(() => {
     const vals = new Set();
     leads.forEach(l => {
-      const leadData = l.data || l;
+      const leadData = l;
       leadData.ca_name && vals.add(leadData.ca_name);
     });
     return [...vals].sort();
@@ -78,7 +78,7 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
 
   const filtered = useMemo(() => {
     return leads.filter(lead => {
-      const leadData = lead.data || lead;
+      const leadData = lead;
       const matchSearch = !search || 
         leadData.customer_name?.toLowerCase().includes(search.toLowerCase()) ||
         leadData.phone_number?.includes(search);

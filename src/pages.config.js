@@ -50,6 +50,7 @@
 import Home from './pages/Home';
 import InviteUsers from './pages/InviteUsers';
 import Report from './pages/Report';
+import SyncMonitoring from './pages/SyncMonitoring';
 import Templates from './pages/Templates';
 import __Layout from './Layout.jsx';
 
@@ -58,11 +59,21 @@ export const PAGES = {
     "Home": Home,
     "InviteUsers": InviteUsers,
     "Report": Report,
+    "SyncMonitoring": SyncMonitoring,
     "Templates": Templates,
 }
+
+export const ROUTES = [
+    { path: '/Home', component: Home, title: 'Home' },
+    { path: '/InviteUsers', component: InviteUsers, title: 'Invite Users' },
+    { path: '/Report', component: Report, title: 'Report' },
+    { path: '/sync-monitoring', component: SyncMonitoring, title: 'Sync Monitoring' },
+    { path: '/Templates', component: Templates, title: 'Templates' },
+];
 
 export const pagesConfig = {
     mainPage: "Home",
     Pages: PAGES,
+    routes: ROUTES,
     Layout: __Layout,
 };

@@ -89,6 +89,36 @@ function getSupabaseAdmin() {
   return createClient(url, serviceRoleKey);
 }
 
+function getBearerToken(authHeader: string | null): string | null {
+  if (!authHeader) return null;
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  return match?.[1] ?? null;
+}
+
+async function isAuthorizedRequest(req: Request, supabaseAdmin: ReturnType<typeof createClient>) {
+  const authHeader = req.headers.get("Authorization") ?? req.headers.get("authorization");
+  const token = getBearerToken(authHeader);
+  if (!token) return false;
+
+  const serviceRoleKey =
+    getEnv("SUPABASE_SERVICE_ROLE_KEY") ||
+    getEnv("SUPABASE_SERVICE_ROLE") ||
+    getEnv("SUPABASE_SERVICE_KEY");
+  if (serviceRoleKey && token === serviceRoleKey) return true;
+
+  const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token);
+  if (userError || !userData?.user) return false;
+
+  const { data: profile, error: profileError } = await supabaseAdmin
+    .from("profiles")
+    .select("role")
+    .eq("id", userData.user.id)
+    .maybeSingle();
+
+  if (profileError || !profile || profile.role !== "admin") return false;
+  return true;
+}
+
 function parseRows(values: any[], entityName: keyof typeof FIELD_MAPS) {
   if (!values || values.length < 2) return [];
   const headers = values[0];
@@ -199,9 +229,19 @@ async function syncEntity(supabaseAdmin: any, entityName: keyof typeof SHEET_CON
   return { created, updated, skipped };
 }
 
-Deno.serve(async (_req) => {
+Deno.serve(async (req) => {
   try {
     const supabaseAdmin = getSupabaseAdmin();
+    const isAuthorized = await isAuthorizedRequest(req, supabaseAdmin);
+    if (!isAuthorized) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }
 
     const results: Record<string, any> = {};
     for (const entityName of ["VanaLead", "MatchTalkLead", "GreenFormLead"] as const) {

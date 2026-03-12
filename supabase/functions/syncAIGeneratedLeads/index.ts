@@ -65,23 +65,26 @@ function getSupabaseAdmin() {
   return createClient(url, serviceRoleKey);
 }
 
-function getBearerToken(req: Request): string | null {
-  const auth = req.headers.get("authorization") || req.headers.get("Authorization");
+function getBearerToken(authHeader: string | null): string | null {
+  const auth = authHeader;
   if (!auth) return null;
   const match = auth.match(/^Bearer\s+(.+)$/i);
   return match?.[1] ?? null;
 }
 
-async function assertAdmin(req: Request, supabaseAdmin: ReturnType<typeof createClient>) {
-  const token = getBearerToken(req);
-  if (!token) {
-    return { ok: false as const, status: 401, error: "Missing Authorization Bearer token" };
-  }
+async function isAuthorizedRequest(req: Request, supabaseAdmin: ReturnType<typeof createClient>) {
+  const authHeader = req.headers.get("Authorization") ?? req.headers.get("authorization");
+  const token = getBearerToken(authHeader);
+  if (!token) return false;
+
+  const serviceRoleKey =
+    getEnv("SUPABASE_SERVICE_ROLE_KEY") ||
+    getEnv("SUPABASE_SERVICE_ROLE") ||
+    getEnv("SUPABASE_SERVICE_KEY");
+  if (serviceRoleKey && token === serviceRoleKey) return true;
 
   const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token);
-  if (userError || !userData?.user) {
-    return { ok: false as const, status: 401, error: "Invalid or expired token" };
-  }
+  if (userError || !userData?.user) return false;
 
   const userId = userData.user.id;
   const { data: profile, error: profileError } = await supabaseAdmin
@@ -90,15 +93,9 @@ async function assertAdmin(req: Request, supabaseAdmin: ReturnType<typeof create
     .eq("id", userId)
     .maybeSingle();
 
-  if (profileError) {
-    return { ok: false as const, status: 500, error: profileError.message };
-  }
+  if (profileError || !profile || profile.role !== "admin") return false;
 
-  if (!profile || profile.role !== "admin") {
-    return { ok: false as const, status: 403, error: "Forbidden" };
-  }
-
-  return { ok: true as const, userId };
+  return true;
 }
 
 Deno.serve(async (req) => {
@@ -112,9 +109,18 @@ Deno.serve(async (req) => {
 
   try {
     const supabaseAdmin = getSupabaseAdmin();
-    const adminCheck = await assertAdmin(req, supabaseAdmin);
-    if (!adminCheck.ok) {
-      return jsonResponse({ error: adminCheck.error }, { status: adminCheck.status });
+    const isAuthorized = await isAuthorizedRequest(req, supabaseAdmin);
+    if (!isAuthorized) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        {
+          status: 401,
+          headers: {
+            "Content-Type": "application/json",
+            ...CORS_HEADERS,
+          },
+        },
+      );
     }
 
     const sheets = getSheetsClient();

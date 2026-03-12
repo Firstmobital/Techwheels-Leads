@@ -50,7 +50,7 @@ export default function InviteUsers() {
 
       // 2) Wait for profiles list refresh
       const refreshed = await refetch();
-      const refreshedUsers = refreshed?.data || [];
+      const refreshedUsers = refreshed?.data ?? [];
 
       // 3) Assign CA names only after profile exists/refetch completes
       if (caNames.length > 0) {
@@ -192,10 +192,10 @@ export default function InviteUsers() {
               {salespeople.map(u => (
                <div key={u.id} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
                  <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs font-semibold text-gray-600">
-                   {u.full_name?.[0]?.toUpperCase() || u.email?.[0]?.toUpperCase()}
+                   {(u.full_name ?? u.email)?.[0]?.toUpperCase()}
                  </div>
                  <div className="flex-1 min-w-0">
-                   <p className="text-sm font-medium text-gray-800 truncate">{u.full_name || '—'}</p>
+                   <p className="text-sm font-medium text-gray-800 truncate">{u.full_name ?? u.email}</p>
                    <p className="text-xs text-gray-400 truncate">{u.email}</p>
                    {u.ca_names && u.ca_names.length > 0 && (
                      <p className="text-xs text-gray-500 truncate">CA: {u.ca_names.join(', ')}</p>
@@ -221,10 +221,10 @@ export default function InviteUsers() {
               {admins.map(u => (
                 <div key={u.id} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
                   <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-xs font-semibold text-amber-700">
-                    {u.full_name?.[0]?.toUpperCase() || u.email?.[0]?.toUpperCase()}
+                    {(u.full_name ?? u.email)?.[0]?.toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800 truncate">{u.full_name || '—'}</p>
+                    <p className="text-sm font-medium text-gray-800 truncate">{u.full_name ?? u.email}</p>
                     <p className="text-xs text-gray-400 truncate">{u.email}</p>
                   </div>
                   <span className="text-[10px] bg-amber-100 text-amber-700 font-medium px-2 py-0.5 rounded-full">

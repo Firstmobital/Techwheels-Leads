@@ -32,8 +32,8 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
   });
 }
 
-function getBearerToken(req: Request): string | null {
-  const auth = req.headers.get("authorization") || req.headers.get("Authorization");
+function getBearerToken(authHeader: string | null): string | null {
+  const auth = authHeader;
   if (!auth) return null;
   const match = auth.match(/^Bearer\s+(.+)$/i);
   return match?.[1] ?? null;
@@ -46,14 +46,16 @@ function isValidEmail(email: string): boolean {
 
 const ALLOWED_ROLES = new Set(["sales", "user", "admin"]);
 
-async function assertRequestingUserIsAdmin(req: Request) {
-  const token = getBearerToken(req);
-  if (!token) return { ok: false as const, status: 401, error: "Missing Authorization Bearer token" };
+async function isAuthorizedRequest(req: Request) {
+  const authHeader = req.headers.get("Authorization") ?? req.headers.get("authorization");
+  const token = getBearerToken(authHeader);
+  if (!token) return false;
+
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (serviceRoleKey && token === serviceRoleKey) return true;
 
   const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token);
-  if (userError || !userData?.user) {
-    return { ok: false as const, status: 401, error: "Invalid or expired token" };
-  }
+  if (userError || !userData?.user) return false;
 
   const userId = userData.user.id;
   const { data: profile, error: profileError } = await supabaseAdmin
@@ -62,15 +64,8 @@ async function assertRequestingUserIsAdmin(req: Request) {
     .eq("id", userId)
     .maybeSingle();
 
-  if (profileError) {
-    return { ok: false as const, status: 500, error: profileError.message };
-  }
-
-  if (!profile || profile.role !== "admin") {
-    return { ok: false as const, status: 403, error: "Forbidden" };
-  }
-
-  return { ok: true as const };
+  if (profileError || !profile || profile.role !== "admin") return false;
+  return true;
 }
 
 Deno.serve(async (req: Request) => {
@@ -83,9 +78,18 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const adminCheck = await assertRequestingUserIsAdmin(req);
-    if (!adminCheck.ok) {
-      return jsonResponse({ error: adminCheck.error }, { status: adminCheck.status });
+    const isAuthorized = await isAuthorizedRequest(req);
+    if (!isAuthorized) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        {
+          status: 401,
+          headers: {
+            "Content-Type": "application/json",
+            ...CORS_HEADERS,
+          },
+        },
+      );
     }
 
     const body = await req.json().catch(() => ({}));

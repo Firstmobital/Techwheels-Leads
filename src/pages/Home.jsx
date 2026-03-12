@@ -24,6 +24,8 @@ const MESSAGES = {
   greenforms: (lead) => `Hello ${lead.customer_name},\n\nThank you for your interest in the ${lead.car_model || 'car'}.\n\nOur team would be happy to assist you with details or a test drive.\n\nPlease let us know how we can help.`,
 };
 
+/** @typedef {{ leadId: string, tab: string, dayStep?: number, caName?: string }} MarkSentPayload */
+
 export default function Home() {
   const [activeTab, setActiveTab] = useState('vana');
   const { user: currentUser } = useAuth();
@@ -42,13 +44,18 @@ export default function Home() {
     try {
       const results = await Promise.all(
         ['VanaLead', 'MatchTalkLead', 'GreenFormLead'].map(entity =>
-          supabaseApi.functions.invoke('syncFromSheets', { entity }).then(r => r.data).catch(e => ({ error: e.message, created: 0, updated: 0 }))
+          supabaseApi.functions.invoke('syncFromSheets', {
+  body: { entity }
+}).then(r => r?.data ?? {}).catch(e => ({ error: e.message, rows_inserted: 0, rows_updated: 0, rows_processed: 0, rows_skipped: 0 }))
         )
       );
-      const totalCreated = results.reduce((s, d) => s + (d.created || 0), 0);
-      const totalUpdated = results.reduce((s, d) => s + (d.updated || 0), 0);
+      const totalInserted = results.reduce((s, d) => s + Number(d?.rows_inserted || 0), 0);
+      const totalUpdated = results.reduce((s, d) => s + Number(d?.rows_updated || 0), 0);
+      const totalProcessed = results.reduce((s, d) => s + Number(d?.rows_processed || 0), 0);
+      const totalSkipped = results.reduce((s, d) => s + Number(d?.rows_skipped || 0), 0);
       const errors = results.filter(d => d.error);
-      setSyncMsg(errors.length ? `⚠ ${totalCreated} new · ${totalUpdated} updated · ${errors.length} failed` : `✓ ${totalCreated} new · ${totalUpdated} updated`);
+      const summary = `Inserted: ${totalInserted} · Updated: ${totalUpdated} · Processed: ${totalProcessed} · Skipped: ${totalSkipped}`;
+      setSyncMsg(errors.length ? `⚠ ${summary} · ${errors.length} failed` : `✓ ${summary}`);
       queryClient.invalidateQueries({ queryKey: ['vana-leads'] });
       queryClient.invalidateQueries({ queryKey: ['match-leads'] });
       queryClient.invalidateQueries({ queryKey: ['green-leads'] });
@@ -63,8 +70,12 @@ export default function Home() {
     setSyncAIMsg('');
     try {
       const res = await supabaseApi.functions.invoke('syncAIGeneratedLeads', {});
-      const result = res.data;
-      setSyncAIMsg(result.error ? `⚠ ${result.error}` : `✓ ${result.created || 0} new · ${result.updated || 0} updated`);
+      const result = res?.data ?? {};
+      setSyncAIMsg(
+        result.error
+          ? `⚠ ${result.error}`
+          : `✓ Inserted: ${Number(result?.rows_inserted || 0)} · Updated: ${Number(result?.rows_updated || 0)} · Processed: ${Number(result?.rows_processed || 0)} · Skipped: ${Number(result?.rows_skipped || 0)}`
+      );
       queryClient.invalidateQueries({ queryKey: ['ai-leads'] });
     } catch (e) {
       const msg = e?.response?.data?.error || e.message;
@@ -108,11 +119,11 @@ export default function Home() {
     if (!currentUser) return [];
     if (isAdmin) return leads;
     
-    const userCaNames = currentUser.data?.ca_names || currentUser.ca_names || [];
+    const userCaNames = currentUser.ca_names || [];
     if (!Array.isArray(userCaNames) || userCaNames.length === 0) return [];
     
     return leads.filter(l => {
-      const leadData = l.data || l;
+      const leadData = l;
       if (tab === 'greenforms') {
         return userCaNames.includes(leadData.employee_full_name);
       } else {
@@ -139,24 +150,29 @@ export default function Home() {
     return map;
   }, [sentMessages]);
 
-  const markSentMutation = useMutation({
+  /** @type {import('@tanstack/react-query').UseMutationOptions<any, unknown, MarkSentPayload, unknown>} */
+  const markSentMutationOptions = {
     mutationFn: ({ leadId, tab, dayStep, caName }) => supabaseApi.entities.SentMessage.create({
       lead_id: leadId,
       tab: tab,
       day_step: dayStep || 1,
       sent_at: new Date().toISOString(),
       sent_by: currentUser?.email || '',
+      status: 'sent',
       ca_name: caName || '',
     }),
     onMutate: ({ leadId, tab }) => {
       queryClient.setQueryData(['sent-messages'], (old = []) => {
-        const newMsg = { lead_id: leadId, tab: tab, sent_at: new Date().toISOString() };
-        return [...old, newMsg];
+        const safeOld = Array.isArray(old) ? old : [];
+        const newMsg = { lead_id: leadId, tab: tab, sent_at: new Date().toISOString(), status: 'sent' };
+        return [...safeOld, newMsg];
       });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sent-messages'] }),
     onError: () => queryClient.invalidateQueries({ queryKey: ['sent-messages'] }),
-  });
+  };
+
+  const markSentMutation = useMutation(markSentMutationOptions);
 
   const handleMarkSent = useCallback((leadId, tab, dayStep, caName) => {
     markSentMutation.mutate({ leadId, tab, dayStep, caName });

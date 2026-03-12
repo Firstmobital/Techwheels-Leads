@@ -421,6 +421,7 @@ export default function HomeScreen() {
         day_step: preview.step,
         sent_at: new Date().toISOString(),
         sent_by: user?.email || "",
+        status: "sent",
         ca_name:
           activeTab === "greenforms"
             ? preview.lead.employee_full_name || preview.lead.ca_name || ""
@@ -531,9 +532,14 @@ export default function HomeScreen() {
 
       if (error) throw error;
 
-      const created = Number(data?.created || 0);
-      const updated = Number(data?.updated || 0);
-      setSyncStatus(`AI synced: ${created} new, ${updated} updated`);
+      const result = data ?? {};
+      const rowsInserted = Number(result?.rows_inserted || 0);
+      const rowsUpdated = Number(result?.rows_updated || 0);
+      const rowsProcessed = Number(result?.rows_processed || 0);
+      const rowsSkipped = Number(result?.rows_skipped || 0);
+      setSyncStatus(
+        `AI synced: Inserted ${rowsInserted}, Updated ${rowsUpdated}, Processed ${rowsProcessed}, Skipped ${rowsSkipped}`
+      );
       await loadLeads({ isRefresh: true });
     } catch (syncError) {
       setSyncStatus(syncError?.message || "AI sync failed.");
@@ -552,19 +558,31 @@ export default function HomeScreen() {
         entities.map((entity) =>
           supabase.functions
             .invoke("syncFromSheets", { body: { entity } })
-            .then((res) => res.data)
-            .catch((error) => ({ error: error.message || "Failed" }))
+            .then((res) => res?.data ?? {})
+            .catch((error) => ({
+              error: error.message || "Failed",
+              rows_inserted: 0,
+              rows_updated: 0,
+              rows_processed: 0,
+              rows_skipped: 0,
+            }))
         )
       );
 
-      const created = results.reduce((sum, item) => sum + Number(item?.created || 0), 0);
-      const updated = results.reduce((sum, item) => sum + Number(item?.updated || 0), 0);
+      const rowsInserted = results.reduce((sum, item) => sum + Number(item?.rows_inserted || 0), 0);
+      const rowsUpdated = results.reduce((sum, item) => sum + Number(item?.rows_updated || 0), 0);
+      const rowsProcessed = results.reduce((sum, item) => sum + Number(item?.rows_processed || 0), 0);
+      const rowsSkipped = results.reduce((sum, item) => sum + Number(item?.rows_skipped || 0), 0);
       const failed = results.filter((item) => item?.error).length;
 
       if (failed > 0) {
-        setSyncStatus(`Sync done: ${created} new, ${updated} updated, ${failed} failed`);
+        setSyncStatus(
+          `Sync done: Inserted ${rowsInserted}, Updated ${rowsUpdated}, Processed ${rowsProcessed}, Skipped ${rowsSkipped}, ${failed} failed`
+        );
       } else {
-        setSyncStatus(`Sync done: ${created} new, ${updated} updated`);
+        setSyncStatus(
+          `Sync done: Inserted ${rowsInserted}, Updated ${rowsUpdated}, Processed ${rowsProcessed}, Skipped ${rowsSkipped}`
+        );
       }
 
       await loadLeads({ isRefresh: true });
