@@ -1,6 +1,22 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { supabase } from '@/api/supabaseClient';
 
+const AUTH_REQUEST_TIMEOUT_MS = 10000;
+
+const withTimeout = async (promise, timeoutMs = AUTH_REQUEST_TIMEOUT_MS, errorMessage = 'Request timed out') => {
+  let timeoutId;
+
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
 const defaultAuthContextValue = {
   user: null,
   isAuthenticated: false,
@@ -42,11 +58,15 @@ export const AuthProvider = ({ children }) => {
 
   const hydrateUser = async (authUser) => {
     try {
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', authUser.id)
-        .maybeSingle();
+      const { data: profile, error: profileError } = await withTimeout(
+        supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', authUser.id)
+          .maybeSingle(),
+        AUTH_REQUEST_TIMEOUT_MS,
+        'Profile lookup timed out'
+      );
 
       if (profileError) {
         throw profileError;
@@ -70,7 +90,11 @@ export const AuthProvider = ({ children }) => {
       setIsLoadingAuth(true);
       setAuthError(null);
 
-      const { data, error } = await supabase.auth.getSession();
+      const { data, error } = await withTimeout(
+        supabase.auth.getSession(),
+        AUTH_REQUEST_TIMEOUT_MS,
+        'Session check timed out'
+      );
       if (error) throw error;
 
       const session = data?.session;
