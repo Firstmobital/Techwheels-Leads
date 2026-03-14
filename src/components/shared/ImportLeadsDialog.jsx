@@ -4,6 +4,10 @@ import { Button } from "@/components/ui/button";
 import { X, Upload, CheckCircle, AlertCircle } from "lucide-react";
 import * as XLSX from "xlsx";
 
+// Legacy import flow retained only for historical/manual use.
+// Not part of the active web runtime Green Forms path.
+let hasWarnedLegacyImportLeadsDialog = false;
+
 const ENTITY_TABLES = {
   VanaLead: "vana_leads",
   MatchTalkLead: "matchtalk_leads",
@@ -127,6 +131,11 @@ const chunk = (arr, size) => {
 };
 
 export default function ImportLeadsDialog({ entityName, onClose, onImported }) {
+  if (!hasWarnedLegacyImportLeadsDialog && typeof window !== "undefined") {
+    hasWarnedLegacyImportLeadsDialog = true;
+    console.warn("[Legacy] ImportLeadsDialog is deprecated and not part of active runtime.");
+  }
+
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);

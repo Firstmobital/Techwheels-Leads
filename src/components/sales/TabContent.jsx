@@ -28,6 +28,18 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
         const leadData = l;
         leadData.ppl && models.add(leadData.ppl);
       });
+    } else if (tab === 'vana') {
+      leads.forEach(l => {
+        const leadData = l;
+        const model = leadData.car_model || leadData.ppl;
+        model && models.add(model);
+      });
+    } else if (tab === 'greenforms') {
+      leads.forEach(l => {
+        const leadData = l;
+        const model = leadData.model_name || leadData.car_model || leadData.ppl;
+        model && models.add(model);
+      });
     } else {
       leads.forEach(l => {
         const leadData = l;
@@ -42,7 +54,8 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
     const vals = new Set();
     leads.forEach(l => {
       const leadData = l;
-      leadData.ppl && vals.add(leadData.ppl);
+      const model = leadData.model_name || leadData.car_model || leadData.ppl;
+      model && vals.add(model);
     });
     return [...vals].sort();
   }, [leads, tab]);
@@ -52,7 +65,8 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
     const vals = new Set();
     leads.forEach(l => {
       const leadData = l;
-      leadData.source_pv && vals.add(leadData.source_pv);
+      const source = leadData.source_type || leadData.source_pv;
+      source && vals.add(source);
     });
     return [...vals].sort();
   }, [leads, tab]);
@@ -79,15 +93,26 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
   const filtered = useMemo(() => {
     return leads.filter(lead => {
       const leadData = lead;
+      const resolvedPhone = leadData.mobile_number || leadData.phone_number || '';
+      const resolvedVnaModel = leadData.car_model || leadData.ppl || '';
+      const resolvedVnaAllocation = String(leadData.allocation_status || leadData.status || '').trim().toLowerCase();
+      const resolvedGreenFormModel = leadData.model_name || leadData.car_model || leadData.ppl;
+      const resolvedGreenFormSource = leadData.source_type || leadData.source_pv || '';
       const matchSearch = !search || 
         leadData.customer_name?.toLowerCase().includes(search.toLowerCase()) ||
-        leadData.phone_number?.includes(search);
-      const matchCar = carFilter === 'all' || (tab === 'matchtalk' ? leadData.ppl === carFilter : leadData.car_model === carFilter);
+        String(resolvedPhone).includes(search);
+      const matchCar = carFilter === 'all' || (tab === 'matchtalk'
+        ? leadData.ppl === carFilter
+        : tab === 'vana'
+          ? resolvedVnaModel === carFilter
+        : tab === 'greenforms'
+          ? resolvedGreenFormModel === carFilter
+          : leadData.car_model === carFilter);
       const matchSent = showSent || !sentIds.has(lead.id);
-      const matchPerson = personFilter === 'all' || (tab === 'greenforms' ? leadData.assigned_to === personFilter : leadData.ca_name === personFilter);
-      const matchAllocation = allocationFilter === 'all' || leadData.allocation_status === 'Next In Allocation';
-      const matchPpl = pplFilter === 'all' || leadData.ppl === pplFilter;
-      const matchSource = sourceFilter === 'all' || leadData.source_pv === sourceFilter;
+      const matchPerson = personFilter === 'all' || (tab === 'greenforms' ? leadData.salesperson_id === personFilter : leadData.ca_name === personFilter);
+      const matchAllocation = allocationFilter === 'all' || (tab === 'vana' && resolvedVnaAllocation === 'next in allocation');
+      const matchPpl = pplFilter === 'all' || resolvedGreenFormModel === pplFilter;
+      const matchSource = sourceFilter === 'all' || resolvedGreenFormSource === sourceFilter;
       const matchBranch = branchFilter === 'all' || leadData.branch === branchFilter;
       return matchSearch && matchCar && matchSent && matchPerson && matchAllocation && matchPpl && matchSource && matchBranch;
     });

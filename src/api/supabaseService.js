@@ -2,6 +2,7 @@ import { supabase } from '@/api/supabaseClient';
 
 const OPERATIONAL_ENTITY_TABLES = {
   AILead: 'ai_leads',
+  GreenFormSubmittedLead: 'greenform_submitted_leads',
   ShowroomWalkin: 'showroom_walkins',
   IVRLead: 'ivr_leads',
   VNAStock: 'vna_stock',
@@ -16,7 +17,7 @@ const OPERATIONAL_ENTITY_TABLES = {
 const LEGACY_ENTITY_ALIASES = {
   VanaLead: 'VNAStock',
   MatchTalkLead: 'MatchedStockCustomer',
-  GreenFormLead: 'ShowroomWalkin',
+  GreenFormLead: 'GreenFormSubmittedLead',
   // Legacy AI alias retained for stale callers; active web AI path uses AILead.
   AIGeneratedLead: 'AILead',
   User: 'Employee'
@@ -31,15 +32,23 @@ const getEntityTable = (entityName) => {
   return OPERATIONAL_ENTITY_TABLES[resolved];
 };
 
-const AI_LEAD_SORT_COLUMN_MAP = {
-  created_date: 'created_at',
-  updated_date: 'updated_at'
+const ENTITY_SORT_COLUMN_MAPS = {
+  AILead: {
+    created_date: 'created_at',
+    updated_date: 'updated_at'
+  },
+  VNAStock: {
+    created_date: 'created_at',
+    updated_date: 'updated_at'
+  },
+  GreenFormSubmittedLead: {
+    created_date: 'created_at'
+  }
 };
 
 const resolveSortColumn = (resolvedEntityName, column) => {
-  if (resolvedEntityName === 'AILead') {
-    return AI_LEAD_SORT_COLUMN_MAP[column] ?? column;
-  }
+  const entityMap = ENTITY_SORT_COLUMN_MAPS[resolvedEntityName];
+  if (entityMap) return entityMap[column] ?? column;
   return column;
 };
 
@@ -111,6 +120,134 @@ const normalizeAILeadReadRow = (row, employeeById = new Map()) => {
     ca_name: fullName,
     employee_full_name: fullName
   };
+};
+
+const normalizeVNAStockReadRow = (row) => {
+  const safe = row ?? {};
+
+  const id = normalizeNullable(safe.id ?? safe.lead_id);
+  const customerName = normalizeNullable(safe.customer_name);
+  const phoneNumber = normalizeNullable(safe.phone_number ?? safe.mobile_number);
+  const carModel = normalizeNullable(safe.car_model ?? safe.ppl ?? safe.model_name);
+  const caName = normalizeNullable(safe.ca_name ?? safe.employee_full_name);
+  const branch = normalizeNullable(safe.branch);
+  const allocationStatus = normalizeNullable(safe.allocation_status ?? safe.status ?? safe.opty_status);
+  const createdAt = normalizeNullable(safe.created_at ?? safe.created_date);
+  const updatedAt = normalizeNullable(safe.updated_at ?? safe.updated_date);
+
+  return {
+    ...safe,
+
+    // Canonical runtime shape for active web VNA tab.
+    id,
+    customer_name: customerName,
+    phone_number: phoneNumber,
+    car_model: carModel,
+    ca_name: caName,
+    branch,
+    allocation_status: allocationStatus,
+    chassis_no: normalizeNullable(safe.chassis_no),
+    colour: normalizeNullable(safe.colour),
+    created_at: createdAt,
+    updated_at: updatedAt,
+
+    // Compatibility projection kept only for current shared-card safety.
+    mobile_number: phoneNumber,
+    ppl: normalizeNullable(safe.ppl ?? carModel),
+    created_date: createdAt,
+    updated_date: updatedAt,
+    status: normalizeNullable(safe.status ?? allocationStatus)
+  };
+};
+
+const normalizeVNAStockReadRows = (rows) => {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  return safeRows.map((row) => normalizeVNAStockReadRow(row));
+};
+
+const normalizeVNAStockResult = (result) => {
+  if (!result) return null;
+  if (Array.isArray(result)) {
+    return normalizeVNAStockReadRows(result);
+  }
+  return normalizeVNAStockReadRow(result);
+};
+
+const parseCompositeLeadId = (id) => {
+  if (id === null || id === undefined) {
+    return { source_type: null, source_record_id: null };
+  }
+
+  const raw = String(id);
+  const splitIndex = raw.indexOf(':');
+  if (splitIndex <= 0 || splitIndex >= raw.length - 1) {
+    return { source_type: null, source_record_id: null };
+  }
+
+  return {
+    source_type: raw.slice(0, splitIndex),
+    source_record_id: raw.slice(splitIndex + 1)
+  };
+};
+
+const normalizeGreenFormReadRow = (row) => {
+  const safe = row ?? {};
+  const parsedFromId = parseCompositeLeadId(safe.id);
+
+  const sourceType = normalizeNullable(safe.source_type ?? parsedFromId.source_type);
+  const sourceRecordId = normalizeNullable(safe.source_record_id ?? parsedFromId.source_record_id);
+  const customerName = normalizeNullable(safe.customer_name);
+  const mobileNumber = normalizeNullable(safe.mobile_number ?? safe.phone_number);
+  const modelName = normalizeNullable(safe.model_name ?? safe.car_model ?? safe.ppl);
+  const salespersonId = normalizeNullable(safe.salesperson_id ?? safe.assigned_to);
+  const locationId = normalizeNullable(safe.location_id);
+  const optyId = normalizeNullable(safe.opty_id);
+  const optyStatus = normalizeNullable(safe.opty_status ?? safe.status);
+  const optySubmittedAt = normalizeNullable(safe.opty_submitted_at);
+  const createdAt = normalizeNullable(safe.created_at ?? safe.created_date);
+  const employeeFullName = normalizeNullable(safe.employee_full_name ?? safe.ca_name);
+
+  return {
+    ...safe,
+
+    // Canonical runtime shape for Green Forms
+    source_type: sourceType,
+    source_record_id: sourceRecordId,
+    customer_name: customerName,
+    mobile_number: mobileNumber,
+    model_name: modelName,
+    salesperson_id: salespersonId,
+    location_id: locationId,
+    opty_id: optyId,
+    opty_status: optyStatus,
+    opty_submitted_at: optySubmittedAt,
+    created_at: createdAt,
+
+    // Compatibility projection kept for active web UI safety during migration.
+    phone_number: mobileNumber,
+    car_model: modelName,
+    ppl: modelName,
+    assigned_to: salespersonId,
+    status: optyStatus,
+    created_date: createdAt,
+    employee_full_name: employeeFullName,
+    ca_name: employeeFullName,
+    source_pv: normalizeNullable(safe.source_pv ?? sourceType),
+    lead_source: normalizeNullable(safe.lead_source ?? sourceType)
+  };
+};
+
+const normalizeGreenFormReadRows = (rows) => {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  return safeRows.map((row) => normalizeGreenFormReadRow(row));
+};
+
+const normalizeGreenFormResult = (result) => {
+  if (!result) return null;
+  if (Array.isArray(result)) {
+    return normalizeGreenFormReadRows(result);
+  }
+  return normalizeGreenFormReadRow(result);
 };
 
 const fetchEmployeesByIds = async (salespersonIds) => {
@@ -236,6 +373,12 @@ const createEntityAdapter = (entityName) => {
       if (resolvedEntityName === 'AILead') {
         return normalizeAILeadReadRows(rows);
       }
+      if (resolvedEntityName === 'VNAStock') {
+        return normalizeVNAStockReadRows(rows);
+      }
+      if (resolvedEntityName === 'GreenFormSubmittedLead') {
+        return normalizeGreenFormReadRows(rows);
+      }
       return rows;
     },
 
@@ -249,6 +392,12 @@ const createEntityAdapter = (entityName) => {
       if (resolvedEntityName === 'AILead') {
         return normalizeAILeadResult(result);
       }
+      if (resolvedEntityName === 'VNAStock') {
+        return normalizeVNAStockResult(result);
+      }
+      if (resolvedEntityName === 'GreenFormSubmittedLead') {
+        return normalizeGreenFormResult(result);
+      }
       return result;
     },
 
@@ -261,6 +410,12 @@ const createEntityAdapter = (entityName) => {
       const result = normalizeSingle(writePayload, data);
       if (resolvedEntityName === 'AILead') {
         return normalizeAILeadResult(result);
+      }
+      if (resolvedEntityName === 'VNAStock') {
+        return normalizeVNAStockResult(result);
+      }
+      if (resolvedEntityName === 'GreenFormSubmittedLead') {
+        return normalizeGreenFormResult(result);
       }
       return result;
     },

@@ -22,9 +22,9 @@ const FOLLOW_UP_MESSAGES = {
     4: (lead) => `Booking Name: ${lead.customer_name}\nCar Model: ${lead.ppl || ''}\nVariant: ${lead.pl || ''}\nSales Advisor: ${lead.ca_name || ''}\nContact No.: \n\nThis is a reminder that your vehicle is still awaiting billing. We have already communicated the urgency earlier.\n\nKindly complete the billing and RTO formalities immediately to avoid reallocation.\n\nThank you.`,
   },
   greenforms: {
-    1: (lead) => `Hello ${lead.customer_name},\n\nThank you for your interest in the ${lead.car_model || 'car'}.\n\nOur team would be happy to assist you with details or a test drive.\n\nPlease let us know how we can help.`,
-    2: (lead) => `Hello ${lead.customer_name},\n\nFollowing up on your inquiry about the ${lead.car_model || 'car'}.\nWould you like to book a test drive or get a quote?\n\nThank you.`,
-    5: (lead) => `Hello ${lead.customer_name},\n\nWe're reaching out once more regarding the ${lead.car_model || 'car'}.\nOur team is ready to assist you whenever you're ready.\n\nThank you.`,
+    1: (lead) => `Hello ${lead.customer_name},\n\nThank you for your interest in the ${lead.model_name || lead.car_model || lead.ppl || 'car'}.\n\nOur team would be happy to assist you with details or a test drive.\n\nPlease let us know how we can help.`,
+    2: (lead) => `Hello ${lead.customer_name},\n\nFollowing up on your inquiry about the ${lead.model_name || lead.car_model || lead.ppl || 'car'}.\nWould you like to book a test drive or get a quote?\n\nThank you.`,
+    5: (lead) => `Hello ${lead.customer_name},\n\nWe're reaching out once more regarding the ${lead.model_name || lead.car_model || lead.ppl || 'car'}.\nOur team is ready to assist you whenever you're ready.\n\nThank you.`,
   },
 };
 
@@ -59,6 +59,16 @@ function getNextDueStep(sentMessages, leadId, tab) {
 export default function LeadCard({ lead, tab, accentColor, message, isSent, onMarkSent, templates, sentMessages = [] }) {
    const [selectedTemplateId, setSelectedTemplateId] = useState('default');
    const normalizedLead = getNormalizedLead(lead);
+  const isGreenForms = tab === 'greenforms';
+  const resolvedPhone = isGreenForms
+    ? (normalizedLead.mobile_number || normalizedLead.phone_number || '')
+    : (normalizedLead.phone_number || normalizedLead.mobile_number || '');
+  const resolvedCarModel = isGreenForms
+    ? (normalizedLead.model_name || normalizedLead.car_model || normalizedLead.ppl)
+    : (normalizedLead.car_model || normalizedLead.model_name || normalizedLead.ppl);
+  const resolvedGreenFormSource = normalizedLead.source_type || normalizedLead.source_pv || '';
+  const resolvedGreenFormOwnerId = normalizedLead.salesperson_id || normalizedLead.assigned_to || '';
+  const resolvedGreenFormOwnerName = normalizedLead.employee_full_name || normalizedLead.ca_name || '';
 
    const nextDue = getNextDueStep(sentMessages, lead.id, tab);
    const allDone = !nextDue;
@@ -72,7 +82,7 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
 
    // Check if there's a DB template for current tab + day_step
    // Prefer PPL-specific match, fallback to no-PPL template
-   const leadPpl = (normalizedLead.ppl || '').toLowerCase().trim();
+  const leadPpl = String(isGreenForms ? resolvedCarModel : (normalizedLead.ppl || '')).toLowerCase().trim();
   const dbStepTemplate = (() => {
     const candidates = templates?.filter(t => {
       const tabMatch = t.tab === tab || t.tab === 'all';
@@ -96,10 +106,10 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
   const fillPlaceholders = (msg) => msg
     .replace(/{customer_name}/g, normalizedLead.customer_name || '')
     .replace(/{name}/g, normalizedLead.customer_name || '')
-    .replace(/{ppl}/g, normalizedLead.ppl || '')
+    .replace(/{ppl}/g, isGreenForms ? (resolvedCarModel || '') : (normalizedLead.ppl || ''))
     .replace(/{pl}/g, normalizedLead.pl || '')
-    .replace(/{ca_name}/g, normalizedLead.ca_name || '')
-    .replace(/{car}/g, normalizedLead.ppl || normalizedLead.car_model || 'car');
+    .replace(/{ca_name}/g, isGreenForms ? (resolvedGreenFormOwnerName || '') : (normalizedLead.ca_name || ''))
+    .replace(/{car}/g, isGreenForms ? (resolvedCarModel || normalizedLead.ppl || 'car') : (normalizedLead.ppl || resolvedCarModel || 'car'));
 
   const resolvedDefault = dbStepTemplate
     ? fillPlaceholders(dbStepTemplate.message)
@@ -113,7 +123,7 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
         return fillPlaceholders(t.message);
       })();
 
-  const phone = normalizedLead.phone_number?.replace(/[^0-9+]/g, '').replace(/^\+/, '');
+  const phone = String(resolvedPhone).replace(/[^0-9+]/g, '').replace(/^\+/, '');
   const waLink = `https://wa.me/${phone}?text=${encodeURIComponent(activeMessage)}`;
 
   // Attachments from the active template
@@ -125,7 +135,7 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
   const handleSend = () => {
     window.open(waLink, '_blank');
     const caName = tab === 'greenforms'
-      ? (normalizedLead.employee_full_name || normalizedLead.ca_name || '')
+      ? (resolvedGreenFormOwnerName || '')
       : (normalizedLead.ca_name || '');
     onMarkSent(lead.id, tab, currentStep, caName);
   };
@@ -163,15 +173,15 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
                 </span>
               )}
             </div>
-            {normalizedLead.car_model && (
+            {resolvedCarModel && (
               <div className="flex items-center gap-1.5 mb-1">
                 <Car className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
-                <span className="text-xs text-gray-600 dark:text-gray-300 truncate">{normalizedLead.car_model}</span>
+                <span className="text-xs text-gray-600 dark:text-gray-300 truncate">{resolvedCarModel}</span>
               </div>
             )}
             <div className="flex items-center gap-1.5">
               <Phone className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
-              <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">{normalizedLead.phone_number}</span>
+              <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">{resolvedPhone}</span>
             </div>
 
             {/* Step progress pills */}
@@ -241,12 +251,12 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
                 </div>
               )}
 
-            {tab === 'greenforms' && (normalizedLead.ppl || normalizedLead.source_pv || normalizedLead.employee_full_name) && (
+            {tab === 'greenforms' && (resolvedCarModel || resolvedGreenFormSource || resolvedGreenFormOwnerName || resolvedGreenFormOwnerId) && (
                 <div className="mt-1.5 space-y-0.5 w-full">
                   {[
-                    ['PPL', normalizedLead.ppl],
-                    ['Source', normalizedLead.source_pv],
-                    ['Employee', normalizedLead.employee_full_name],
+                    ['Model', resolvedCarModel],
+                    ['Source', resolvedGreenFormSource],
+                    ['Employee', resolvedGreenFormOwnerName],
                   ].filter(([, val]) => val).map(([label, val]) => (
                     <div key={label} className="flex items-center gap-1.5 text-xs">
                       <span className="text-gray-400 w-14 flex-shrink-0">{label}:</span>
@@ -255,14 +265,14 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
                   ))}
                 </div>
               )}
-            {normalizedLead.lead_source && (
+            {(isGreenForms ? resolvedGreenFormSource : normalizedLead.lead_source) && (
                 <span className="text-[10px] font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
-                  {normalizedLead.lead_source}
+                  {isGreenForms ? resolvedGreenFormSource : normalizedLead.lead_source}
                 </span>
               )}
-              {normalizedLead.assigned_to && (
+              {(isGreenForms ? resolvedGreenFormOwnerId : normalizedLead.assigned_to) && (
                 <span className="text-[10px] font-medium text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
-                  👤 {normalizedLead.assigned_to.split('@')[0]}
+                  👤 {isGreenForms ? resolvedGreenFormOwnerId : normalizedLead.assigned_to.split('@')[0]}
                 </span>
               )}
               {!allDone && nextDue && nextDue.step > 1 && !nextDue.overdue && (

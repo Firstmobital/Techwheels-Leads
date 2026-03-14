@@ -4,7 +4,16 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { MessageSquare, Pencil, Check, X, User, Phone } from "lucide-react";
 
+// Legacy component retained only for historical reference.
+// Not part of the active web runtime Green Forms path.
+let hasWarnedLegacyGreenFormLeadRow = false;
+
 export default function GreenFormLeadRow({ lead, onUpdate }) {
+  if (!hasWarnedLegacyGreenFormLeadRow && typeof window !== "undefined") {
+    hasWarnedLegacyGreenFormLeadRow = true;
+    console.warn("[Legacy] GreenFormLeadRow is deprecated and not part of active runtime.");
+  }
+
   const [editingNotes, setEditingNotes] = useState(false);
   const [notes, setNotes] = useState(lead.notes || "");
 

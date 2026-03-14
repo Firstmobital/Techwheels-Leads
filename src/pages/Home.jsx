@@ -18,7 +18,7 @@ const isAdminUser = (user) => {
 };
 
 const LEAD_TABS = [
-  { id: 'vana', label: 'VNA Next Allocation', icon: CarFront, color: 'bg-amber-500 hover:bg-amber-600', entity: 'VanaLead' },
+  { id: 'vana', label: 'VNA Next Allocation', icon: CarFront, color: 'bg-amber-500 hover:bg-amber-600', entity: 'VNAStock' },
   { id: 'matchtalk', label: 'Match Stock', icon: Sparkles, color: 'bg-emerald-500 hover:bg-emerald-600', entity: 'MatchTalkLead' },
   { id: 'greenforms', label: 'Green Forms', icon: FileText, color: 'bg-blue-500 hover:bg-blue-600', entity: 'GreenFormLead' },
   { id: 'ai_leads', label: 'AI Leads', icon: Bot, color: 'bg-purple-500 hover:bg-purple-600', entity: 'AILead' },
@@ -30,7 +30,7 @@ const ADMIN_TABS = [
 const MESSAGES = {
   vana: (lead) => `Hello ${lead.customer_name},\n\nYour allocation is ready. Please find your details below:\n${lead.chassis_no ? `Chassis No: ${lead.chassis_no}\n` : ''}${lead.colour ? `Colour: ${lead.colour}\n` : ''}${lead.allocation_status ? `Status: ${lead.allocation_status}\n` : ''}\nPlease contact us to proceed.\n\nThank you.`,
   matchtalk: (lead) => `Booking Name: ${lead.customer_name}\nCar Model: ${lead.ppl || ''}\nVariant: ${lead.pl || ''}\nSales Advisor: ${lead.ca_name || ''}\nContact No.: \n\nWe are pleased to inform you that your vehicle is now available for billing and the chassis number has been allotted.\n\nKindly proceed with the billing and RTO formalities at the earliest. As per company policy, we can hold the vehicle for 4 working days only.\n\nIf you are not planning to take delivery within the next 7 days, we kindly request you to inform us and allow us to allocate the vehicle to the next waiting customer.\n\nWe truly appreciate your understanding and look forward to assisting you with the delivery.\n\nThank you.`,
-  greenforms: (lead) => `Hello ${lead.customer_name},\n\nThank you for your interest in the ${lead.car_model || 'car'}.\n\nOur team would be happy to assist you with details or a test drive.\n\nPlease let us know how we can help.`,
+  greenforms: (lead) => `Hello ${lead.customer_name},\n\nThank you for your interest in the ${lead.model_name || lead.car_model || lead.ppl || 'car'}.\n\nOur team would be happy to assist you with details or a test drive.\n\nPlease let us know how we can help.`,
 };
 
 /** @typedef {{ leadId: string, tab: string, dayStep?: number, caName?: string }} MarkSentPayload */
@@ -79,7 +79,7 @@ export default function Home() {
       const errors = results.filter(d => d.error);
       const summary = `Inserted: ${totalInserted} · Updated: ${totalUpdated} · Processed: ${totalProcessed} · Skipped: ${totalSkipped}`;
       setSyncMsg(errors.length ? `⚠ ${summary} · ${errors.length} failed` : `✓ ${summary}`);
-      queryClient.invalidateQueries({ queryKey: ['vana-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['vna-stock'] });
       queryClient.invalidateQueries({ queryKey: ['match-leads'] });
       queryClient.invalidateQueries({ queryKey: ['green-leads'] });
     } catch (e) {
@@ -89,8 +89,8 @@ export default function Home() {
   };
 
   const { data: vanaLeads = [], isLoading: vanaLoading } = useQuery({
-    queryKey: ['vana-leads'],
-    queryFn: () => supabaseApi.entities.VanaLead.list('-created_date'),
+    queryKey: ['vna-stock'],
+    queryFn: () => supabaseApi.entities.VNAStock.list('-created_at'),
     enabled: !!currentUser,
   });
 
@@ -118,21 +118,49 @@ export default function Home() {
     enabled: isAdmin,
   });
 
-  // Filter leads: regular user sees only their assigned CA names leads; admin sees all
+  // Filter leads: admin sees all; non-admin visibility depends on tab-specific ownership rules.
   const filterLeads = useCallback((leads, tab) => {
     if (!currentUser) return [];
     if (isAdmin) return leads;
     
-    const userCaNames = currentUser.ca_names || [];
-    if (!Array.isArray(userCaNames) || userCaNames.length === 0) {
-      return leads;
-    }
+    const userCaNames = Array.isArray(currentUser.ca_names) ? currentUser.ca_names : [];
     
     return leads.filter(l => {
       const leadData = l;
       if (tab === 'greenforms') {
-        return userCaNames.includes(leadData.employee_full_name);
+        const currentEmployeeId = currentUser.employeeId ?? null;
+        const leadSalespersonId = leadData.salesperson_id ?? null;
+
+        if (
+          currentEmployeeId === null ||
+          currentEmployeeId === undefined ||
+          leadSalespersonId === null ||
+          leadSalespersonId === undefined
+        ) {
+          return false;
+        }
+
+        return String(leadSalespersonId) === String(currentEmployeeId);
+      } else if (tab === 'vana') {
+        const currentEmployeeId = currentUser.employeeId ?? null;
+        const leadSalespersonId = leadData.salesperson_id ?? null;
+
+        if (
+          currentEmployeeId === null ||
+          currentEmployeeId === undefined ||
+          currentEmployeeId === '' ||
+          leadSalespersonId === null ||
+          leadSalespersonId === undefined ||
+          leadSalespersonId === ''
+        ) {
+          return false;
+        }
+
+        return String(leadSalespersonId) === String(currentEmployeeId);
       } else {
+        if (userCaNames.length === 0) {
+          return true;
+        }
         return userCaNames.includes(leadData.ca_name);
       }
     });
@@ -203,7 +231,7 @@ export default function Home() {
   }, [aiLeads, currentUser, isAdmin]);
 
   const tabData = {
-    vana: { leads: filterLeads(vanaLeads, 'vana'), loading: vanaLoading, refreshKey: 'vana-leads' },
+    vana: { leads: filterLeads(vanaLeads, 'vana'), loading: vanaLoading, refreshKey: 'vna-stock' },
     matchtalk: { leads: filterLeads(matchLeads, 'matchtalk'), loading: matchLoading, refreshKey: 'match-leads' },
     greenforms: { leads: filterLeads(greenLeads, 'greenforms'), loading: greenLoading, refreshKey: 'green-leads' },
     ai_leads: { leads: filteredAILeads, loading: aiLoading, refreshKey: 'ai-leads' },
