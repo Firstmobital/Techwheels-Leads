@@ -7,6 +7,14 @@ import { motion } from 'framer-motion';
 import AppHeader from '@/components/shared/AppHeader';
 import { useAuth } from '@/lib/AuthContext';
 
+const isAdminUser = (user) => {
+  if (!user) return false;
+  const roleCode = String(user.roleCode || '').trim().toLowerCase();
+  const roleName = String(user.roleName || '').trim().toLowerCase();
+  const role = String(user.role || '').trim().toLowerCase();
+  return roleCode === 'admin' || roleName === 'admin' || role === 'admin';
+};
+
 export default function Layout({ children, currentPageName }) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
@@ -14,7 +22,7 @@ export default function Layout({ children, currentPageName }) {
   const { user, logout } = useAuth();
 
   useEffect(() => {
-    setIsAdmin(user?.role === 'admin');
+    setIsAdmin(isAdminUser(user));
   }, [user]);
 
   const prefersDark = useMemo(() => {

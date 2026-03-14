@@ -9,11 +9,19 @@ import TemplatesSection from '../components/sales/TemplatesSection';
 import AILeadCard from '../components/sales/AILeadCard';
 import { useAuth } from '@/lib/AuthContext';
 
+const isAdminUser = (user) => {
+  if (!user) return false;
+  const roleCode = String(user.roleCode || '').trim().toLowerCase();
+  const roleName = String(user.roleName || '').trim().toLowerCase();
+  const role = String(user.role || '').trim().toLowerCase();
+  return roleCode === 'admin' || roleName === 'admin' || role === 'admin';
+};
+
 const LEAD_TABS = [
   { id: 'vana', label: 'VNA Next Allocation', icon: CarFront, color: 'bg-amber-500 hover:bg-amber-600', entity: 'VanaLead' },
   { id: 'matchtalk', label: 'Match Stock', icon: Sparkles, color: 'bg-emerald-500 hover:bg-emerald-600', entity: 'MatchTalkLead' },
   { id: 'greenforms', label: 'Green Forms', icon: FileText, color: 'bg-blue-500 hover:bg-blue-600', entity: 'GreenFormLead' },
-  { id: 'ai_leads', label: 'AI Leads', icon: Bot, color: 'bg-purple-500 hover:bg-purple-600', entity: 'AIGeneratedLead' },
+  { id: 'ai_leads', label: 'AI Leads', icon: Bot, color: 'bg-purple-500 hover:bg-purple-600', entity: 'AILead' },
 ];
 const ADMIN_TABS = [
   { id: 'templates', label: 'Templates', icon: FileText, color: 'bg-gray-500 hover:bg-gray-600', entity: null },
@@ -32,18 +40,18 @@ export default function Home() {
   const { user: currentUser, isLoadingAuth } = useAuth();
   const queryClient = useQueryClient();
 
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = isAdminUser(currentUser);
+  const enableLegacySyncActions = import.meta.env.VITE_ENABLE_LEGACY_SYNC_ACTIONS === 'true';
 
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
-  const [syncingAI, setSyncingAI] = useState(false);
-  const [syncAIMsg, setSyncAIMsg] = useState('');
 
   if (isLoadingAuth) {
     return <div>Loading...</div>;
   }
 
   const handleSyncAll = async () => {
+    if (!enableLegacySyncActions) return;
     setSyncing(true);
     setSyncMsg('');
     try {
@@ -80,32 +88,6 @@ export default function Home() {
     setSyncing(false);
   };
 
-  const handleSyncAILeads = async () => {
-    setSyncingAI(true);
-    setSyncAIMsg('');
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const { data, error } = await supabase.functions.invoke('syncAIGeneratedLeads', {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: {},
-      });
-      if (error) throw error;
-      const result = data ?? {};
-      setSyncAIMsg(
-        result.error
-          ? `⚠ ${result.error}`
-          : `✓ Inserted: ${Number(result?.rows_inserted || 0)} · Updated: ${Number(result?.rows_updated || 0)} · Processed: ${Number(result?.rows_processed || 0)} · Skipped: ${Number(result?.rows_skipped || 0)}`
-      );
-      queryClient.invalidateQueries({ queryKey: ['ai-leads'] });
-    } catch (e) {
-      const msg = e?.response?.data?.error || e.message;
-      setSyncAIMsg('⚠ ' + msg);
-    }
-    setSyncingAI(false);
-  };
-
   const { data: vanaLeads = [], isLoading: vanaLoading } = useQuery({
     queryKey: ['vana-leads'],
     queryFn: () => supabaseApi.entities.VanaLead.list('-created_date'),
@@ -126,7 +108,7 @@ export default function Home() {
 
   const { data: aiLeads = [], isLoading: aiLoading } = useQuery({
     queryKey: ['ai-leads'],
-    queryFn: () => supabaseApi.entities.AIGeneratedLead.list('-created_date'),
+    queryFn: () => supabaseApi.entities.AILead.list('-created_at'),
     enabled: !!currentUser,
   });
 
@@ -142,7 +124,9 @@ export default function Home() {
     if (isAdmin) return leads;
     
     const userCaNames = currentUser.ca_names || [];
-    if (!Array.isArray(userCaNames) || userCaNames.length === 0) return [];
+    if (!Array.isArray(userCaNames) || userCaNames.length === 0) {
+      return leads;
+    }
     
     return leads.filter(l => {
       const leadData = l;
@@ -207,8 +191,15 @@ export default function Home() {
   // Filter AI leads: admin sees all, CA sees unassigned + their own
   const filteredAILeads = useMemo(() => {
     if (!currentUser) return [];
+    const currentEmployeeId = currentUser.employeeId ?? null;
     if (isAdmin) return aiLeads;
-    return aiLeads.filter(l => !l.is_assigned || l.assigned_to === currentUser.email);
+    return aiLeads.filter((lead) => {
+      const salespersonId = lead.salesperson_id ?? null;
+      const isUnassigned = salespersonId === null || salespersonId === undefined || salespersonId === '';
+      if (isUnassigned) return true;
+      if (currentEmployeeId === null || currentEmployeeId === undefined) return false;
+      return String(salespersonId) === String(currentEmployeeId);
+    });
   }, [aiLeads, currentUser, isAdmin]);
 
   const tabData = {
@@ -229,19 +220,11 @@ export default function Home() {
       {/* Header */}
       <div className="bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 px-5 pt-6 pb-4 safe-area-top">
         <div className="flex items-center justify-between">
-          {isAdmin && (
+          {isAdmin && enableLegacySyncActions && (
             <div className="flex items-center gap-2">
-              {(syncMsg || syncAIMsg) && (
-                <span className="text-xs text-green-600 dark:text-green-400">{syncAIMsg || syncMsg}</span>
+              {syncMsg && (
+                <span className="text-xs text-green-600 dark:text-green-400">{syncMsg}</span>
               )}
-              <button
-                onClick={handleSyncAILeads}
-                disabled={syncingAI}
-                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-50 font-medium"
-              >
-                <Bot className={`w-3 h-3 ${syncingAI ? 'animate-spin' : ''}`} />
-                {syncingAI ? 'Syncing...' : 'Sync AI'}
-              </button>
               <button
                 onClick={handleSyncAll}
                 disabled={syncing}

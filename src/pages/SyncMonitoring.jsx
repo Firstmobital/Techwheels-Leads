@@ -4,6 +4,14 @@ import { RefreshCw, Play, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { supabase } from '@/api/supabaseClient';
 import { useAuth } from '@/lib/AuthContext';
 
+const isAdminUser = (user) => {
+  if (!user) return false;
+  const roleCode = String(user.roleCode || '').trim().toLowerCase();
+  const roleName = String(user.roleName || '').trim().toLowerCase();
+  const role = String(user.role || '').trim().toLowerCase();
+  return roleCode === 'admin' || roleName === 'admin' || role === 'admin';
+};
+
 function formatDateTime(value) {
   if (!value) return '-';
   const d = new Date(value);
@@ -19,7 +27,7 @@ function asNumber(value) {
 export default function SyncMonitoring() {
   const { user: currentUser, isLoadingAuth } = useAuth();
   const queryClient = useQueryClient();
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = isAdminUser(currentUser);
 
   const {
     data: logs = [],

@@ -7,12 +7,20 @@ import { useAuth } from '@/lib/AuthContext';
 
 const SUCCESS_STATUSES = new Set(['sent']);
 
+const isAdminUser = (user) => {
+  if (!user) return false;
+  const roleCode = String(user.roleCode || '').trim().toLowerCase();
+  const roleName = String(user.roleName || '').trim().toLowerCase();
+  const role = String(user.role || '').trim().toLowerCase();
+  return roleCode === 'admin' || roleName === 'admin' || role === 'admin';
+};
+
 // Templates moved to Home dashboard
 export default function Report() {
   const today = new Date().toISOString().split('T')[0];
   const { user: currentUser } = useAuth();
 
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = isAdminUser(currentUser);
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],

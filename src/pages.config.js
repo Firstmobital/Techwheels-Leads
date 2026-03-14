@@ -54,21 +54,23 @@ import SyncMonitoring from './pages/SyncMonitoring';
 import Templates from './pages/Templates';
 import __Layout from './Layout.jsx';
 
+const ENABLE_LEGACY_SYNC_ROUTES = import.meta.env.VITE_ENABLE_LEGACY_SYNC_ROUTES === 'true';
+
 
 export const PAGES = {
     "Home": Home,
     "InviteUsers": InviteUsers,
     "Report": Report,
-    "SyncMonitoring": SyncMonitoring,
     "Templates": Templates,
+    ...(ENABLE_LEGACY_SYNC_ROUTES ? { "SyncMonitoring": SyncMonitoring } : {}),
 }
 
 export const ROUTES = [
     { path: '/Home', component: Home, title: 'Home' },
     { path: '/InviteUsers', component: InviteUsers, title: 'Invite Users' },
     { path: '/Report', component: Report, title: 'Report' },
-    { path: '/sync-monitoring', component: SyncMonitoring, title: 'Sync Monitoring' },
     { path: '/Templates', component: Templates, title: 'Templates' },
+    ...(ENABLE_LEGACY_SYNC_ROUTES ? [{ path: '/sync-monitoring', component: SyncMonitoring, title: 'Sync Monitoring (Legacy)' }] : []),
 ];
 
 export const pagesConfig = {

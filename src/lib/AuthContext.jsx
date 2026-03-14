@@ -2,7 +2,7 @@ import React, { createContext, useState, useContext, useEffect } from 'react';
 import { supabase } from '@/api/supabaseClient';
 
 const AUTH_REQUEST_TIMEOUT_MS = 60000;
-const PROFILE_TIMEOUT_MS = 60000;
+const HYDRATION_TIMEOUT_MS = 60000;
 
 const withTimeout = async (promise, timeoutMs = AUTH_REQUEST_TIMEOUT_MS, errorMessage = 'Request timed out') => {
   let timeoutId;
@@ -31,6 +31,38 @@ const defaultAuthContextValue = {
 
 const AuthContext = createContext(defaultAuthContextValue);
 
+const normalizeRoleValue = (roleCode, roleName) => {
+  const raw = String(roleCode || roleName || '').trim();
+  return raw ? raw.toLowerCase() : null;
+};
+
+const buildNormalizedUser = ({ authUser, employee, role }) => {
+  const firstName = employee?.first_name ?? null;
+  const lastName = employee?.last_name ?? null;
+  const fullName = [firstName, lastName].filter(Boolean).join(' ').trim() || null;
+  const roleCode = role?.code ?? null;
+  const roleName = role?.name ?? null;
+
+  return {
+    employeeId: employee?.id ?? null,
+    authUserId: authUser?.id ?? null,
+    email: employee?.email ?? authUser?.email ?? null,
+    firstName,
+    lastName,
+    fullName,
+    roleId: employee?.role_id ?? null,
+    roleName,
+    roleCode,
+    locationId: employee?.location_id ?? null,
+
+    // Compatibility fields for existing web screens during Phase 1.
+    id: employee?.id ?? authUser?.id ?? null,
+    full_name: fullName,
+    role: normalizeRoleValue(roleCode, roleName),
+    ca_names: []
+  };
+};
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -58,36 +90,56 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const hydrateUser = async (authUser) => {
-    const fallbackProfile = {
-      id: authUser.id,
-      role: 'user',
-    };
+    const fallbackUser = buildNormalizedUser({
+      authUser,
+      employee: null,
+      role: null
+    });
 
     try {
-      const { data: profile, error: profileError } = await withTimeout(
+      const { data: employee, error: employeeError } = await withTimeout(
         supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', authUser.id)
+          .from('employees')
+          .select('id, auth_user_id, role_id, location_id, first_name, last_name, email')
+          .eq('auth_user_id', authUser.id)
           .maybeSingle(),
-        PROFILE_TIMEOUT_MS,
-        'Profile lookup timed out'
+        HYDRATION_TIMEOUT_MS,
+        'Employee lookup timed out'
       );
 
-      if (profileError) {
-        console.error('Failed to hydrate auth user:', profileError);
-        setUser(fallbackProfile);
+      if (employeeError) {
+        console.error('Failed to hydrate auth user:', employeeError);
+        setUser(fallbackUser);
         setIsAuthenticated(true);
         setAuthError(null);
         return;
       }
 
-      setUser({ ...fallbackProfile, ...(profile || {}) });
+      let role = null;
+      if (employee?.role_id) {
+        const { data: roleData, error: roleError } = await withTimeout(
+          supabase
+            .from('roles')
+            .select('id, name, code')
+            .eq('id', employee.role_id)
+            .maybeSingle(),
+          HYDRATION_TIMEOUT_MS,
+          'Role lookup timed out'
+        );
+
+        if (roleError) {
+          console.error('Failed to load role for employee:', roleError);
+        } else {
+          role = roleData ?? null;
+        }
+      }
+
+      setUser(buildNormalizedUser({ authUser, employee, role }));
       setIsAuthenticated(true);
       setAuthError(null);
     } catch (error) {
       console.error('Failed to hydrate auth user:', error);
-      setUser(fallbackProfile);
+      setUser(fallbackUser);
       setIsAuthenticated(true);
       setAuthError(null);
     } finally {
@@ -102,7 +154,7 @@ export const AuthProvider = ({ children }) => {
 
       const { data, error } = await withTimeout(
         supabase.auth.getSession(),
-        PROFILE_TIMEOUT_MS,
+        HYDRATION_TIMEOUT_MS,
         'Session check timed out'
       );
       if (error) throw error;
@@ -120,7 +172,7 @@ export const AuthProvider = ({ children }) => {
         await hydrateUser(session.user);
       } catch (error) {
         console.error('Failed to hydrate auth user:', error);
-        setUser({ id: session.user.id, role: 'user' });
+        setUser(buildNormalizedUser({ authUser: session.user, employee: null, role: null }));
         setIsAuthenticated(true);
         setAuthError(null);
         setIsLoadingAuth(false);
@@ -133,18 +185,44 @@ export const AuthProvider = ({ children }) => {
   };
 
   const updateProfile = async (payload) => {
-    const userId = user?.id;
-    if (!userId) return null;
+    const employeeId = user?.employeeId;
+    if (!employeeId) return null;
 
-    const { data, error } = await supabase
-      .from('profiles')
-      .update(payload)
-      .eq('id', userId)
-      .select()
+    const allowedEmployeeFields = ['first_name', 'last_name', 'email', 'location_id', 'role_id'];
+    const employeePayload = Object.fromEntries(
+      Object.entries(payload || {}).filter(([key]) => allowedEmployeeFields.includes(key))
+    );
+
+    if (Object.keys(employeePayload).length === 0) {
+      return user;
+    }
+
+    const { data: employee, error } = await supabase
+      .from('employees')
+      .update(employeePayload)
+      .eq('id', employeeId)
+      .select('id, auth_user_id, role_id, location_id, first_name, last_name, email')
       .maybeSingle();
 
     if (error) throw error;
-    const nextUser = { ...(user || {}), ...(data || payload) };
+
+    let role = null;
+    if (employee?.role_id) {
+      const { data: roleData, error: roleError } = await supabase
+        .from('roles')
+        .select('id, name, code')
+        .eq('id', employee.role_id)
+        .maybeSingle();
+
+      if (roleError) throw roleError;
+      role = roleData ?? null;
+    }
+
+    const authUser = {
+      id: user?.authUserId ?? null,
+      email: user?.email ?? null
+    };
+    const nextUser = buildNormalizedUser({ authUser, employee, role });
     setUser(nextUser);
     return nextUser;
   };
