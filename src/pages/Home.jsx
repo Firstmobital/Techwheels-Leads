@@ -19,8 +19,8 @@ const isAdminUser = (user) => {
 
 const LEAD_TABS = [
   { id: 'vana', label: 'VNA Next Allocation', icon: CarFront, color: 'bg-amber-500 hover:bg-amber-600', entity: 'VNAStock' },
-  { id: 'matchtalk', label: 'Match Stock', icon: Sparkles, color: 'bg-emerald-500 hover:bg-emerald-600', entity: 'MatchTalkLead' },
-  { id: 'greenforms', label: 'Green Forms', icon: FileText, color: 'bg-blue-500 hover:bg-blue-600', entity: 'GreenFormLead' },
+  { id: 'matchtalk', label: 'Match Stock', icon: Sparkles, color: 'bg-emerald-500 hover:bg-emerald-600', entity: 'MatchedStockCustomer' },
+  { id: 'greenforms', label: 'Green Forms', icon: FileText, color: 'bg-blue-500 hover:bg-blue-600', entity: 'GreenFormSubmittedLead' },
   { id: 'ai_leads', label: 'AI Leads', icon: Bot, color: 'bg-purple-500 hover:bg-purple-600', entity: 'AILead' },
 ];
 const ADMIN_TABS = [
@@ -41,52 +41,10 @@ export default function Home() {
   const queryClient = useQueryClient();
 
   const isAdmin = isAdminUser(currentUser);
-  const enableLegacySyncActions = import.meta.env.VITE_ENABLE_LEGACY_SYNC_ACTIONS === 'true';
-
-  const [syncing, setSyncing] = useState(false);
-  const [syncMsg, setSyncMsg] = useState('');
 
   if (isLoadingAuth) {
     return <div>Loading...</div>;
   }
-
-  const handleSyncAll = async () => {
-    if (!enableLegacySyncActions) return;
-    setSyncing(true);
-    setSyncMsg('');
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error('User not authenticated yet');
-      }
-      const results = await Promise.all(
-        ['VanaLead', 'MatchTalkLead', 'GreenFormLead'].map(entity =>
-          supabase.functions
-            .invoke('syncFromSheets', {
-              body: { entity },
-            })
-            .then(({ data, error }) => {
-              if (error) throw error;
-              return data ?? {};
-            })
-            .catch(e => ({ error: e.message, rows_inserted: 0, rows_updated: 0, rows_processed: 0, rows_skipped: 0 }))
-        )
-      );
-      const totalInserted = results.reduce((s, d) => s + Number(d?.rows_inserted || 0), 0);
-      const totalUpdated = results.reduce((s, d) => s + Number(d?.rows_updated || 0), 0);
-      const totalProcessed = results.reduce((s, d) => s + Number(d?.rows_processed || 0), 0);
-      const totalSkipped = results.reduce((s, d) => s + Number(d?.rows_skipped || 0), 0);
-      const errors = results.filter(d => d.error);
-      const summary = `Inserted: ${totalInserted} · Updated: ${totalUpdated} · Processed: ${totalProcessed} · Skipped: ${totalSkipped}`;
-      setSyncMsg(errors.length ? `⚠ ${summary} · ${errors.length} failed` : `✓ ${summary}`);
-      queryClient.invalidateQueries({ queryKey: ['vna-stock'] });
-      queryClient.invalidateQueries({ queryKey: ['match-leads'] });
-      queryClient.invalidateQueries({ queryKey: ['green-leads'] });
-    } catch (e) {
-      setSyncMsg('Failed: ' + e.message);
-    }
-    setSyncing(false);
-  };
 
   const { data: vanaLeads = [], isLoading: vanaLoading } = useQuery({
     queryKey: ['vna-stock'],
@@ -96,13 +54,13 @@ export default function Home() {
 
   const { data: matchLeads = [], isLoading: matchLoading } = useQuery({
     queryKey: ['match-leads'],
-    queryFn: () => supabaseApi.entities.MatchTalkLead.list('-created_date'),
+    queryFn: () => supabaseApi.entities.MatchedStockCustomer.list('-created_at'),
     enabled: !!currentUser,
   });
 
   const { data: greenLeads = [], isLoading: greenLoading } = useQuery({
     queryKey: ['green-leads'],
-    queryFn: () => supabaseApi.entities.GreenFormLead.list('-created_date'),
+    queryFn: () => supabaseApi.entities.GreenFormSubmittedLead.list('-created_at'),
     enabled: !!currentUser,
   });
 
@@ -114,7 +72,7 @@ export default function Home() {
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => supabaseApi.entities.User.list(),
+    queryFn: () => supabaseApi.entities.Employee.list(),
     enabled: isAdmin,
   });
 
@@ -123,46 +81,26 @@ export default function Home() {
     if (!currentUser) return [];
     if (isAdmin) return leads;
     
-    const userCaNames = Array.isArray(currentUser.ca_names) ? currentUser.ca_names : [];
+    const currentEmployeeId = currentUser.employeeId ?? null;
+    const currentUserFullName = currentUser.fullName ?? '';
     
     return leads.filter(l => {
       const leadData = l;
-      if (tab === 'greenforms') {
-        const currentEmployeeId = currentUser.employeeId ?? null;
-        const leadSalespersonId = leadData.salesperson_id ?? null;
-
-        if (
-          currentEmployeeId === null ||
-          currentEmployeeId === undefined ||
-          leadSalespersonId === null ||
-          leadSalespersonId === undefined
-        ) {
-          return false;
-        }
-
+      
+      // Try salesperson_id (UUID) first
+      const leadSalespersonId = leadData.salesperson_id ?? null;
+      if (leadSalespersonId && currentEmployeeId) {
         return String(leadSalespersonId) === String(currentEmployeeId);
-      } else if (tab === 'vana') {
-        const currentEmployeeId = currentUser.employeeId ?? null;
-        const leadSalespersonId = leadData.salesperson_id ?? null;
-
-        if (
-          currentEmployeeId === null ||
-          currentEmployeeId === undefined ||
-          currentEmployeeId === '' ||
-          leadSalespersonId === null ||
-          leadSalespersonId === undefined ||
-          leadSalespersonId === ''
-        ) {
-          return false;
-        }
-
-        return String(leadSalespersonId) === String(currentEmployeeId);
-      } else {
-        if (userCaNames.length === 0) {
-          return true;
-        }
-        return userCaNames.includes(leadData.ca_name);
       }
+
+      // Fallback to name-based matching for VNA/Match Stock if salesperson_id is missing
+      const leadCaName = leadData.ca_name ?? leadData.employee_full_name ?? '';
+      if (leadCaName && currentUserFullName) {
+        return leadCaName.toLowerCase() === currentUserFullName.toLowerCase();
+      }
+
+      // If no ID or Name match is possible, default to hidden for non-admins
+      return false;
     });
   }, [currentUser, isAdmin]);
 
@@ -248,21 +186,7 @@ export default function Home() {
       {/* Header */}
       <div className="bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 px-5 pt-6 pb-4 safe-area-top">
         <div className="flex items-center justify-between">
-          {isAdmin && enableLegacySyncActions && (
-            <div className="flex items-center gap-2">
-              {syncMsg && (
-                <span className="text-xs text-green-600 dark:text-green-400">{syncMsg}</span>
-              )}
-              <button
-                onClick={handleSyncAll}
-                disabled={syncing}
-                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-700 text-white disabled:opacity-50 font-medium"
-              >
-                <RefreshCw className={`w-3 h-3 ${syncing ? 'animate-spin' : ''}`} />
-                {syncing ? 'Syncing...' : 'Sync All'}
-              </button>
-            </div>
-          )}
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Dealership Leads</h1>
         </div>
       </div>
 

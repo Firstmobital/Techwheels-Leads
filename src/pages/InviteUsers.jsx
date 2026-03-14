@@ -15,19 +15,8 @@ export default function InviteUsers() {
 
   const { data: users = [], refetch } = useQuery({
     queryKey: ['users'],
-    queryFn: () => supabaseApi.entities.User.list(),
+    queryFn: () => supabaseApi.entities.Employee.list(),
   });
-
-  const handleAddCaName = () => {
-    if (caInput.trim() && !caNames.includes(caInput.trim())) {
-      setCaNames(prev => [...prev, caInput.trim()]);
-      setCaInput('');
-    }
-  };
-
-  const handleRemoveCaName = (ca) => {
-    setCaNames(prev => prev.filter(c => c !== ca));
-  };
 
   const handleInvite = async () => {
     const normalizedEmail = email.trim().toLowerCase();
@@ -41,35 +30,16 @@ export default function InviteUsers() {
       setLoading(true);
 
       // 1) Invite user
+      // Note: Edge Function 'inviteUser' needs to be updated in Phase 3 to handle roles/employees properly.
       const inviteRes = await supabaseApi.users.inviteUser(normalizedEmail, 'user');
       if (inviteRes?.error) {
         throw new Error(inviteRes.error.message || 'Failed to invite user');
       }
 
-      const invitedUserId = inviteRes?.data?.user_id;
-
-      // 2) Wait for profiles list refresh
-      const refreshed = await refetch();
-      const refreshedUsers = refreshed?.data ?? [];
-
-      // 3) Assign CA names only after profile exists/refetch completes
-      if (caNames.length > 0) {
-        const invitedUser = invitedUserId
-          ? refreshedUsers.find((u) => u.id === invitedUserId)
-          : refreshedUsers.find((u) => u.email === normalizedEmail);
-
-        if (!invitedUser) {
-          throw new Error('Invited user profile not found after refresh');
-        }
-
-        await supabaseApi.entities.User.update(invitedUser.id, { ca_names: caNames });
-        await refetch();
-      }
+      await refetch();
 
       setInvited(prev => [...prev, normalizedEmail]);
       setEmail('');
-      setCaNames([]);
-      setCaInput('');
       toast.success(`Invitation sent to ${normalizedEmail}`);
     } catch (error) {
       toast.error(error.message || 'Failed to invite user');
@@ -78,8 +48,10 @@ export default function InviteUsers() {
     }
   };
 
-  const salespeople = users.filter(u => u.role === 'user');
-  const admins = users.filter(u => u.role === 'admin');
+  // Simplified categorization for baseline UI. 
+  // Real implementation would join with roles table.
+  const salespeople = users;
+  const admins = [];
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col max-w-lg mx-auto">
@@ -119,46 +91,9 @@ export default function InviteUsers() {
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Invite'}
               </Button>
             </div>
-            <div className="space-y-2">
-              <div className="flex gap-2">
-                <Input
-                  id="ca-name-input"
-                  name="caName"
-                  type="text"
-                  placeholder="CA Name (e.g., Rajesh Kumar)"
-                  value={caInput}
-                  onChange={e => setCaInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleAddCaName()}
-                  className="h-10 rounded-xl text-sm border-gray-200 flex-1"
-                />
-                <Button
-                  onClick={handleAddCaName}
-                  disabled={!caInput.trim()}
-                  variant="outline"
-                  className="h-10 rounded-xl text-sm"
-                >
-                  Add
-                </Button>
-              </div>
-              {caNames.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {caNames.map(ca => (
-                    <div key={ca} className="bg-blue-100 text-blue-700 px-3 py-1 rounded-lg text-xs font-medium flex items-center gap-2">
-                      {ca}
-                      <button
-                        onClick={() => handleRemoveCaName(ca)}
-                        className="text-blue-600 hover:text-blue-800 font-bold"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
           <p className="text-[11px] text-gray-400 mt-2">
-            They will receive an email invitation to join the app as a salesperson.
+            They will receive an email invitation to join the app.
           </p>
         </div>
 
@@ -194,13 +129,10 @@ export default function InviteUsers() {
                  <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs font-semibold text-gray-600">
                    {(u.full_name ?? u.email)?.[0]?.toUpperCase()}
                  </div>
-                 <div className="flex-1 min-w-0">
-                   <p className="text-sm font-medium text-gray-800 truncate">{u.full_name ?? u.email}</p>
-                   <p className="text-xs text-gray-400 truncate">{u.email}</p>
-                   {u.ca_names && u.ca_names.length > 0 && (
-                     <p className="text-xs text-gray-500 truncate">CA: {u.ca_names.join(', ')}</p>
-                   )}
-                 </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">{u.first_name ? `${u.first_name} ${u.last_name ?? ''}` : u.email}</p>
+                    <p className="text-xs text-gray-400 truncate">{u.email}</p>
+                  </div>
                   <span className="text-[10px] bg-blue-100 text-blue-700 font-medium px-2 py-0.5 rounded-full">
                     Sales
                   </span>

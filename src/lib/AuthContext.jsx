@@ -58,8 +58,7 @@ const buildNormalizedUser = ({ authUser, employee, role }) => {
     // Compatibility fields for existing web screens during Phase 1.
     id: employee?.id ?? authUser?.id ?? null,
     full_name: fullName,
-    role: normalizeRoleValue(roleCode, roleName),
-    ca_names: []
+    role: normalizeRoleValue(roleCode, roleName)
   };
 };
 

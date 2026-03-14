@@ -24,38 +24,38 @@ const TABS = [
   {
     id: "vana",
     label: "VNA",
-    table: "vana_leads",
-    orderBy: "created_date",
-    caField: "ca_name",
+    table: "vna_stock",
+    orderBy: "created_at",
+    caField: "employee_full_name",
     titleField: "customer_name",
     subtitleField: "chassis_no",
   },
   {
     id: "matchtalk",
     label: "Match",
-    table: "matchtalk_leads",
-    orderBy: "created_date",
-    caField: "ca_name",
+    table: "matched_stock_customer",
+    orderBy: "created_at",
+    caField: "employee_full_name",
     titleField: "customer_name",
-    subtitleField: "ppl",
+    subtitleField: "model_name",
   },
   {
     id: "greenforms",
     label: "Green",
-    table: "greenform_leads",
-    orderBy: "created_date",
-    caField: "employee_full_name",
+    table: "greenform_submitted_leads",
+    orderBy: "created_at",
+    caField: "ca_name", // View provides ca_name
     titleField: "customer_name",
-    subtitleField: "car_model",
+    subtitleField: "model_name",
   },
   {
     id: "ai_leads",
     label: "AI",
-    table: "ai_generated_leads",
-    orderBy: "created_date",
-    caField: null,
+    table: "ai_leads",
+    orderBy: "created_at",
+    caField: "salesperson_id",
     titleField: "customer_name",
-    subtitleField: "intent_summary",
+    subtitleField: "remarks",
   },
 ];
 
@@ -70,9 +70,6 @@ export default function HomeScreen() {
   const [templates, setTemplates] = useState([]);
   const [preview, setPreview] = useState(null);
   const [sendingLeadId, setSendingLeadId] = useState(null);
-  const [syncingAll, setSyncingAll] = useState(false);
-  const [syncingAI, setSyncingAI] = useState(false);
-  const [syncStatus, setSyncStatus] = useState("");
 
   const defaultFilters = {
     searchQuery: "",
@@ -92,10 +89,8 @@ export default function HomeScreen() {
   );
 
   const isAdmin = user?.role === "admin";
-  const userCaNames = useMemo(() => {
-    if (!Array.isArray(user?.ca_names)) return [];
-    return user.ca_names;
-  }, [user]);
+  const userFullName = user?.fullName || "";
+  const employeeId = user?.employeeId || null;
 
   const tabConfig = useMemo(
     () => TABS.find((tab) => tab.id === activeTab) ?? TABS[0],
@@ -133,12 +128,12 @@ export default function HomeScreen() {
     );
   }, [sentMessages, activeTab]);
 
-  const modelField = activeTab === "matchtalk" ? "ppl" : "car_model";
-  const personField = activeTab === "greenforms" ? "employee_full_name" : "ca_name";
+  const modelField = "model_name";
+  const personField = tabConfig.caField;
   const modelOptions = useMemo(() => {
     const options = new Set();
     leads.forEach((lead) => {
-      const value = String(lead?.[modelField] || "").trim();
+      const value = String(lead?.[modelField] || lead?.ppl || lead?.car_model || "").trim();
       if (value) options.add(value);
     });
     return Array.from(options).sort((a, b) => a.localeCompare(b));
@@ -177,8 +172,8 @@ export default function HomeScreen() {
     return leads.filter((lead) => {
       const query = activeFilters.searchQuery.trim().toLowerCase();
       const customer = String(lead?.customer_name || "").toLowerCase();
-      const phone = String(lead?.phone_number || "");
-      const modelValue = String(lead?.[modelField] || "");
+      const phone = String(lead?.mobile_number || lead?.phone_number || "");
+      const modelValue = String(lead?.[modelField] || lead?.ppl || lead?.car_model || "");
       const leadId = String(lead?.id || "");
 
       const matchesSearch =
@@ -191,8 +186,8 @@ export default function HomeScreen() {
       const matchesPerson = activeFilters.selectedPerson === "all" || personValue === activeFilters.selectedPerson;
       const matchesSource = activeFilters.selectedSource === "all" || sourceValue === activeFilters.selectedSource;
       const matchesBranch = activeFilters.selectedBranch === "all" || branchValue === activeFilters.selectedBranch;
-      const allocationStatus = String(lead?.allocation_status || "");
-      const matchesAllocation = !activeFilters.allocationOnly || allocationStatus === "Next In Allocation";
+      const allocationStatus = String(lead?.allocation_status || lead?.status || "");
+      const matchesAllocation = !activeFilters.allocationOnly || allocationStatus.toLowerCase() === "next in allocation";
 
       return (
         matchesSearch &&
@@ -392,7 +387,7 @@ export default function HomeScreen() {
       defaultMessage,
       templateOptions,
       selectedTemplateId: "default",
-      phone: normalizePhone(lead?.phone_number),
+      phone: normalizePhone(lead?.mobile_number || lead?.phone_number),
     });
   };
 
@@ -422,10 +417,7 @@ export default function HomeScreen() {
         sent_at: new Date().toISOString(),
         sent_by: user?.email || "",
         status: "sent",
-        ca_name:
-          activeTab === "greenforms"
-            ? preview.lead.employee_full_name || preview.lead.ca_name || ""
-            : preview.lead.ca_name || "",
+        ca_name: preview.lead.employee_full_name || preview.lead.ca_name || userFullName,
       };
 
       const { data, error: insertError } = await supabase
@@ -459,24 +451,18 @@ export default function HomeScreen() {
       .from(tabConfig.table)
       .select("*")
       .order(tabConfig.orderBy, { ascending: false })
-      .limit(50);
+      .limit(100);
 
-    if (!isAdmin && tabConfig.caField && userCaNames.length > 0) {
-      query = query.in(tabConfig.caField, userCaNames);
-    }
-
-    if (!isAdmin && tabConfig.caField && userCaNames.length === 0) {
-      setLeads([]);
-      if (isRefresh) {
-        setIsRefreshing(false);
+    // Scoping for non-admins
+    if (!isAdmin) {
+      if (tabConfig.id === "ai_leads") {
+        query = query.or(`salesperson_id.is.null,salesperson_id.eq.${employeeId}`);
+      } else if (tabConfig.id === "greenforms") {
+        query = query.or(`salesperson_id.eq.${employeeId},ca_name.eq.${userFullName}`);
       } else {
-        setIsLoading(false);
+        // VNA and Match use employee_full_name
+        query = query.eq("employee_full_name", userFullName);
       }
-      return;
-    }
-
-    if (!isAdmin && tabConfig.id === "ai_leads") {
-      query = query.or(`is_assigned.is.false,assigned_to.eq.${user?.email ?? ""}`);
     }
 
     const [leadsResult, sentResult, templatesResult] = await Promise.all([
@@ -521,94 +507,7 @@ export default function HomeScreen() {
     loadLeads();
   }, [activeTab, user?.id]);
 
-  const handleSyncAI = async () => {
-    setSyncingAI(true);
-    setSyncStatus("");
 
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const { data, error } = await supabase.functions.invoke("syncAIGeneratedLeads", {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: {},
-      });
-
-      if (error) throw error;
-
-      const result = data ?? {};
-      const rowsInserted = Number(result?.rows_inserted || 0);
-      const rowsUpdated = Number(result?.rows_updated || 0);
-      const rowsProcessed = Number(result?.rows_processed || 0);
-      const rowsSkipped = Number(result?.rows_skipped || 0);
-      setSyncStatus(
-        `AI synced: Inserted ${rowsInserted}, Updated ${rowsUpdated}, Processed ${rowsProcessed}, Skipped ${rowsSkipped}`
-      );
-      await loadLeads({ isRefresh: true });
-    } catch (syncError) {
-      setSyncStatus(syncError?.message || "AI sync failed.");
-    } finally {
-      setSyncingAI(false);
-    }
-  };
-
-  const handleSyncAll = async () => {
-    setSyncingAll(true);
-    setSyncStatus("");
-
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error("User not authenticated yet");
-      }
-      const entities = ["VanaLead", "MatchTalkLead", "GreenFormLead"];
-      const results = await Promise.all(
-        entities.map((entity) =>
-          supabase.functions
-            .invoke("syncFromSheets", {
-              body: { entity },
-            })
-            .then(({ data, error }) => {
-              if (error) throw error;
-              return data ?? {};
-            })
-            .catch((error) => ({
-              error: error.message || "Failed",
-              rows_inserted: 0,
-              rows_updated: 0,
-              rows_processed: 0,
-              rows_skipped: 0,
-            }))
-        )
-      );
-
-      const rowsInserted = results.reduce((sum, item) => sum + Number(item?.rows_inserted || 0), 0);
-      const rowsUpdated = results.reduce((sum, item) => sum + Number(item?.rows_updated || 0), 0);
-      const rowsProcessed = results.reduce((sum, item) => sum + Number(item?.rows_processed || 0), 0);
-      const rowsSkipped = results.reduce((sum, item) => sum + Number(item?.rows_skipped || 0), 0);
-      const failed = results.filter((item) => item?.error).length;
-
-      if (failed > 0) {
-        setSyncStatus(
-          `Sync done: Inserted ${rowsInserted}, Updated ${rowsUpdated}, Processed ${rowsProcessed}, Skipped ${rowsSkipped}, ${failed} failed`
-        );
-      } else {
-        setSyncStatus(
-          `Sync done: Inserted ${rowsInserted}, Updated ${rowsUpdated}, Processed ${rowsProcessed}, Skipped ${rowsSkipped}`
-        );
-      }
-
-      await loadLeads({ isRefresh: true });
-    } catch (syncError) {
-      setSyncStatus(syncError?.message || "Sync failed.");
-    } finally {
-      setSyncingAll(false);
-    }
-  };
 
   if (isLoadingAuth) {
     return (
@@ -626,29 +525,9 @@ export default function HomeScreen() {
         <View style={styles.headerRow}>
           <View>
             <Text style={styles.title}>LeadConnect</Text>
-            <Text style={styles.subtitle}>Signed in as {user?.email ?? "Unknown user"}</Text>
-            {syncStatus ? <Text style={styles.syncStatus}>{syncStatus}</Text> : null}
+            <Text style={styles.subtitle}>Signed in as {user?.fullName || user?.email || "Unknown user"}</Text>
           </View>
           <View style={styles.headerActions}>
-            {isAdmin ? (
-              <>
-                <Pressable
-                  style={[styles.syncButton, syncingAI && styles.disabledButton]}
-                  onPress={handleSyncAI}
-                  disabled={syncingAI || syncingAll}
-                >
-                  <Text style={styles.syncButtonText}>{syncingAI ? "Syncing AI..." : "Sync AI"}</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.syncButton, syncingAll && styles.disabledButton]}
-                  onPress={handleSyncAll}
-                  disabled={syncingAll || syncingAI}
-                >
-                  <Text style={styles.syncButtonText}>{syncingAll ? "Syncing..." : "Sync All"}</Text>
-                </Pressable>
-              </>
-            ) : null}
-
             <Pressable style={styles.signOutButton} onPress={signOut}>
               <Text style={styles.signOutText}>Sign out</Text>
             </Pressable>
@@ -1064,29 +943,9 @@ const styles = StyleSheet.create({
     color: "#334155",
     marginTop: 2,
   },
-  syncStatus: {
-    marginTop: 4,
-    fontSize: 11,
-    color: "#1d4ed8",
-    fontWeight: "600",
-  },
   headerActions: {
     alignItems: "flex-end",
     gap: 6,
-  },
-  syncButton: {
-    backgroundColor: "#334155",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  syncButtonText: {
-    color: "#ffffff",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  disabledButton: {
-    opacity: 0.7,
   },
   signOutButton: {
     backgroundColor: "#e2e8f0",

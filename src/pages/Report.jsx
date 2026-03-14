@@ -24,7 +24,7 @@ export default function Report() {
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => supabaseApi.entities.User.list(),
+    queryFn: () => supabaseApi.entities.Employee.list(),
     enabled: isAdmin,
   });
 
@@ -35,18 +35,18 @@ export default function Report() {
   });
 
   const { data: vanaLeads = [] } = useQuery({
-    queryKey: ['vana-leads'],
-    queryFn: () => supabaseApi.entities.VanaLead.list(),
+    queryKey: ['vna-stock'],
+    queryFn: () => supabaseApi.entities.VNAStock.list(),
     enabled: !!currentUser,
   });
   const { data: matchLeads = [] } = useQuery({
     queryKey: ['match-leads'],
-    queryFn: () => supabaseApi.entities.MatchTalkLead.list(),
+    queryFn: () => supabaseApi.entities.MatchedStockCustomer.list(),
     enabled: !!currentUser,
   });
   const { data: greenLeads = [] } = useQuery({
     queryKey: ['green-leads'],
-    queryFn: () => supabaseApi.entities.GreenFormLead.list(),
+    queryFn: () => supabaseApi.entities.GreenFormSubmittedLead.list(),
     enabled: !!currentUser,
   });
 

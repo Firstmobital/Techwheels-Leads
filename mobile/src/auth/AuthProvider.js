@@ -16,26 +16,45 @@ export function AuthProvider({ children }) {
     }
 
     const { data, error } = await supabase
-      .from("profiles")
-      .select("id, email, role, ca_names")
+      .from("employees")
+      .select(`
+        id, 
+        email, 
+        first_name, 
+        last_name,
+        role_id,
+        location_id,
+        roles (
+          id,
+          code,
+          name
+        )
+      `)
       .eq("id", nextUser.id)
       .maybeSingle();
 
-    if (error) {
+    if (error || !data) {
       setProfile({
         id: nextUser.id,
         email: nextUser.email,
         role: null,
-        ca_names: [],
+        fullName: "",
+        employeeId: nextUser.id,
       });
       return;
     }
 
+    const roleCode = data.roles?.code || null;
+    const firstName = data.first_name || "";
+    const lastName = data.last_name || "";
+    const fullName = [firstName, lastName].filter(Boolean).join(" ");
+
     setProfile({
       id: nextUser.id,
       email: nextUser.email,
-      role: data?.role ?? null,
-      ca_names: Array.isArray(data?.ca_names) ? data.ca_names : [],
+      role: roleCode, // Canonical 'admin' or 'user'
+      fullName,
+      employeeId: data.id,
     });
   };
 

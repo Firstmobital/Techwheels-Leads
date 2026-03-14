@@ -50,11 +50,8 @@
 import Home from './pages/Home';
 import InviteUsers from './pages/InviteUsers';
 import Report from './pages/Report';
-import SyncMonitoring from './pages/SyncMonitoring';
 import Templates from './pages/Templates';
 import __Layout from './Layout.jsx';
-
-const ENABLE_LEGACY_SYNC_ROUTES = import.meta.env.VITE_ENABLE_LEGACY_SYNC_ROUTES === 'true';
 
 
 export const PAGES = {
@@ -62,7 +59,6 @@ export const PAGES = {
     "InviteUsers": InviteUsers,
     "Report": Report,
     "Templates": Templates,
-    ...(ENABLE_LEGACY_SYNC_ROUTES ? { "SyncMonitoring": SyncMonitoring } : {}),
 }
 
 export const ROUTES = [
@@ -70,7 +66,6 @@ export const ROUTES = [
     { path: '/InviteUsers', component: InviteUsers, title: 'Invite Users' },
     { path: '/Report', component: Report, title: 'Report' },
     { path: '/Templates', component: Templates, title: 'Templates' },
-    ...(ENABLE_LEGACY_SYNC_ROUTES ? [{ path: '/sync-monitoring', component: SyncMonitoring, title: 'Sync Monitoring (Legacy)' }] : []),
 ];
 
 export const pagesConfig = {

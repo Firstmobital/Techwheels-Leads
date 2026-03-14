@@ -5,15 +5,22 @@ import { supabase } from "../lib/supabase";
 export default function InviteUsersScreen() {
   const [users, setUsers] = useState([]);
   const [email, setEmail] = useState("");
-  const [caInput, setCaInput] = useState("");
-  const [caNames, setCaNames] = useState([]);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
 
   const loadUsers = async () => {
     const { data, error } = await supabase
-      .from("profiles")
-      .select("id, email, full_name, role, ca_names")
+      .from("employees")
+      .select(`
+        id, 
+        email, 
+        first_name, 
+        last_name,
+        roles (
+          code,
+          name
+        )
+      `)
       .order("email", { ascending: true });
 
     if (error) {
@@ -21,7 +28,11 @@ export default function InviteUsersScreen() {
       return [];
     }
 
-    const rows = Array.isArray(data) ? data : [];
+    const rows = (data || []).map(u => ({
+      ...u,
+      role: u.roles?.code || null,
+      full_name: [u.first_name, u.last_name].filter(Boolean).join(" ")
+    }));
     setUsers(rows);
     return rows;
   };
@@ -33,20 +44,7 @@ export default function InviteUsersScreen() {
   const salesUsers = useMemo(() => users.filter((user) => user.role === "user"), [users]);
   const adminUsers = useMemo(() => users.filter((user) => user.role === "admin"), [users]);
 
-  const addCaName = () => {
-    const trimmed = caInput.trim();
-    if (!trimmed) return;
-    if (caNames.includes(trimmed)) {
-      setCaInput("");
-      return;
-    }
-    setCaNames((prev) => [...prev, trimmed]);
-    setCaInput("");
-  };
 
-  const removeCaName = (name) => {
-    setCaNames((prev) => prev.filter((value) => value !== name));
-  };
 
   const inviteUser = async () => {
     const normalizedEmail = email.trim().toLowerCase();
@@ -68,29 +66,7 @@ export default function InviteUsersScreen() {
         throw error;
       }
 
-      if (caNames.length > 0) {
-        const latestUsers = await loadUsers();
-
-        const targetId = data?.user_id;
-        const invitedUser = latestUsers.find((user) => user.id === targetId) || latestUsers.find((user) => user.email === normalizedEmail);
-
-        if (!invitedUser) {
-          throw new Error("Invited user profile not found after refresh.");
-        }
-
-        const { error: updateError } = await supabase
-          .from("profiles")
-          .update({ ca_names: caNames })
-          .eq("id", invitedUser.id);
-
-        if (updateError) {
-          throw updateError;
-        }
-      }
-
       setEmail("");
-      setCaInput("");
-      setCaNames([]);
       setStatus(`Invitation sent to ${normalizedEmail}`);
       await loadUsers();
     } catch (inviteError) {
@@ -117,28 +93,6 @@ export default function InviteUsersScreen() {
             onChangeText={setEmail}
           />
 
-          <View style={styles.row}>
-            <TextInput
-              style={[styles.input, styles.flexInput]}
-              placeholder="CA Name"
-              value={caInput}
-              onChangeText={setCaInput}
-            />
-            <Pressable style={styles.secondaryButton} onPress={addCaName}>
-              <Text style={styles.secondaryButtonText}>Add</Text>
-            </Pressable>
-          </View>
-
-          {caNames.length > 0 ? (
-            <View style={styles.tagWrap}>
-              {caNames.map((name) => (
-                <Pressable key={name} style={styles.tag} onPress={() => removeCaName(name)}>
-                  <Text style={styles.tagText}>{name} x</Text>
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
-
           <Pressable style={[styles.primaryButton, loading && styles.disabled]} onPress={inviteUser} disabled={loading}>
             <Text style={styles.primaryButtonText}>{loading ? "Inviting..." : "Send Invite"}</Text>
           </Pressable>
@@ -152,7 +106,7 @@ export default function InviteUsersScreen() {
           {salesUsers.map((user) => (
             <View key={user.id} style={styles.userRow}>
               <Text style={styles.userEmail}>{user.email}</Text>
-              <Text style={styles.userMeta}>CA: {(user.ca_names || []).join(", ") || "-"}</Text>
+              <Text style={styles.userMeta}>Name: {user.full_name || "-"}</Text>
             </View>
           ))}
         </View>

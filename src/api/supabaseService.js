@@ -13,23 +13,8 @@ const OPERATIONAL_ENTITY_TABLES = {
   Role: 'roles'
 };
 
-// Temporary compatibility aliases so existing callers compile during migration.
-const LEGACY_ENTITY_ALIASES = {
-  VanaLead: 'VNAStock',
-  MatchTalkLead: 'MatchedStockCustomer',
-  GreenFormLead: 'GreenFormSubmittedLead',
-  // Legacy AI alias retained for stale callers; active web AI path uses AILead.
-  AIGeneratedLead: 'AILead',
-  User: 'Employee'
-};
-
-const resolveEntityName = (entityName) => {
-  return LEGACY_ENTITY_ALIASES[entityName] ?? entityName;
-};
-
 const getEntityTable = (entityName) => {
-  const resolved = resolveEntityName(entityName);
-  return OPERATIONAL_ENTITY_TABLES[resolved];
+  return OPERATIONAL_ENTITY_TABLES[entityName];
 };
 
 const ENTITY_SORT_COLUMN_MAPS = {
@@ -52,11 +37,11 @@ const resolveSortColumn = (resolvedEntityName, column) => {
   return column;
 };
 
-const applySort = (query, sort, resolvedEntityName) => {
+const applySort = (query, sort, entityName) => {
   if (!sort || typeof sort !== 'string') return query;
   const descending = sort.startsWith('-');
   const rawColumn = descending ? sort.slice(1) : sort;
-  const column = resolveSortColumn(resolvedEntityName, rawColumn);
+  const column = resolveSortColumn(entityName, rawColumn);
   if (!column) return query;
   return query.order(column, { ascending: !descending });
 };
@@ -355,7 +340,6 @@ const buildAILeadGreenFormPayload = () => {
 
 const createEntityAdapter = (entityName) => {
   const table = getEntityTable(entityName);
-  const resolvedEntityName = resolveEntityName(entityName);
   if (!table) {
     throw new Error(`Unknown entity: ${entityName}`);
   }
@@ -363,65 +347,65 @@ const createEntityAdapter = (entityName) => {
   return {
     list: async (sort, limit) => {
       let query = supabase.from(table).select('*');
-      query = applySort(query, sort, resolvedEntityName);
+      query = applySort(query, sort, entityName);
       if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
         query = query.range(0, limit - 1);
       }
       const { data, error } = await query;
       throwIfError(error);
       const rows = data ?? [];
-      if (resolvedEntityName === 'AILead') {
+      if (entityName === 'AILead') {
         return normalizeAILeadReadRows(rows);
       }
-      if (resolvedEntityName === 'VNAStock') {
+      if (entityName === 'VNAStock') {
         return normalizeVNAStockReadRows(rows);
       }
-      if (resolvedEntityName === 'GreenFormSubmittedLead') {
+      if (entityName === 'GreenFormSubmittedLead') {
         return normalizeGreenFormReadRows(rows);
       }
       return rows;
     },
 
     create: async (payload) => {
-      const writePayload = resolvedEntityName === 'AILead'
+      const writePayload = entityName === 'AILead'
         ? normalizeAILeadWritePayload(payload)
         : payload;
       const { data, error } = await supabase.from(table).insert(writePayload).select();
       throwIfError(error);
       const result = normalizeSingle(writePayload, data);
-      if (resolvedEntityName === 'AILead') {
+      if (entityName === 'AILead') {
         return normalizeAILeadResult(result);
       }
-      if (resolvedEntityName === 'VNAStock') {
+      if (entityName === 'VNAStock') {
         return normalizeVNAStockResult(result);
       }
-      if (resolvedEntityName === 'GreenFormSubmittedLead') {
+      if (entityName === 'GreenFormSubmittedLead') {
         return normalizeGreenFormResult(result);
       }
       return result;
     },
 
     update: async (id, payload) => {
-      const writePayload = resolvedEntityName === 'AILead'
+      const writePayload = entityName === 'AILead'
         ? normalizeAILeadWritePayload(payload)
         : payload;
       const { data, error } = await supabase.from(table).update(writePayload).eq('id', id).select();
       throwIfError(error);
       const result = normalizeSingle(writePayload, data);
-      if (resolvedEntityName === 'AILead') {
+      if (entityName === 'AILead') {
         return normalizeAILeadResult(result);
       }
-      if (resolvedEntityName === 'VNAStock') {
+      if (entityName === 'VNAStock') {
         return normalizeVNAStockResult(result);
       }
-      if (resolvedEntityName === 'GreenFormSubmittedLead') {
+      if (entityName === 'GreenFormSubmittedLead') {
         return normalizeGreenFormResult(result);
       }
       return result;
     },
 
     requestGreenForm: async (id) => {
-      if (resolvedEntityName !== 'AILead') {
+      if (entityName !== 'AILead') {
         throw new Error('requestGreenForm is only available for AILead');
       }
 
@@ -449,19 +433,13 @@ const getSafeFilePath = (name) => {
 export const supabaseApi = {
   entities: {
     AILead: createEntityAdapter('AILead'),
+    GreenFormSubmittedLead: createEntityAdapter('GreenFormSubmittedLead'),
     ShowroomWalkin: createEntityAdapter('ShowroomWalkin'),
     IVRLead: createEntityAdapter('IVRLead'),
     VNAStock: createEntityAdapter('VNAStock'),
     MatchedStockCustomer: createEntityAdapter('MatchedStockCustomer'),
     Employee: createEntityAdapter('Employee'),
     Role: createEntityAdapter('Role'),
-
-    // Temporary compatibility exports for existing call sites.
-    VanaLead: createEntityAdapter('VanaLead'),
-    MatchTalkLead: createEntityAdapter('MatchTalkLead'),
-    GreenFormLead: createEntityAdapter('GreenFormLead'),
-    User: createEntityAdapter('User'),
-
     SentMessage: createEntityAdapter('SentMessage'),
     Template: createEntityAdapter('Template')
   },

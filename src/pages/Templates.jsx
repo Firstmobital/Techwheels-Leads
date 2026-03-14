@@ -37,12 +37,12 @@ export default function Templates() {
   });
 
   const { data: greenformLeads = [] } = useQuery({
-    queryKey: ['greenform-leads'],
-    queryFn: () => supabaseApi.entities.GreenFormLead.list(),
+    queryKey: ['green-leads'],
+    queryFn: () => supabaseApi.entities.GreenFormSubmittedLead.list(),
   });
 
   const pplOptions = greenformLeads.length > 0 
-      ? [...new Set(greenformLeads.map(l => l.ppl).filter(Boolean))].sort()
+      ? [...new Set(greenformLeads.map(l => l.model_name || l.ppl).filter(Boolean))].sort()
     : [];
 
   const createMutation = useMutation({
