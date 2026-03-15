@@ -1,13 +1,17 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { supabaseApi } from '@/api/supabaseService';
-import { supabase } from '@/api/supabaseClient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
-import { CarFront, Sparkles, FileText, RefreshCw, Bot } from 'lucide-react';
+import { CarFront, Sparkles, FileText, Bot } from 'lucide-react';
 import TabContent from '../components/sales/TabContent';
 import TemplatesSection from '../components/sales/TemplatesSection';
 import AILeadCard from '../components/sales/AILeadCard';
 import { useAuth } from '@/lib/AuthContext';
+import {
+  getLeadSourceForType,
+  getSourceRecordIdForLead,
+  getSentMessageKeyForRow,
+} from '@/utils/sentMessageUtils';
 
 const isAdminUser = (user) => {
   if (!user) return false;
@@ -33,7 +37,7 @@ const MESSAGES = {
   greenforms: (lead) => `Hello ${lead.customer_name},\n\nThank you for your interest in the ${lead.model_name || lead.car_model || lead.ppl || 'car'}.\n\nOur team would be happy to assist you with details or a test drive.\n\nPlease let us know how we can help.`,
 };
 
-/** @typedef {{ leadId: string, tab: string, dayStep?: number, caName?: string }} MarkSentPayload */
+/** @typedef {{ lead: any, leadType: string, messageText: string, templateId?: number | null }} MarkSentPayload */
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('vana');
@@ -54,7 +58,7 @@ export default function Home() {
 
   const { data: matchLeads = [], isLoading: matchLoading } = useQuery({
     queryKey: ['match-leads'],
-    queryFn: () => supabaseApi.entities.MatchedStockCustomer.list('-created_at'),
+    queryFn: () => supabaseApi.entities.MatchedStockCustomer.list('-stage_3_date'),
     enabled: !!currentUser,
   });
 
@@ -106,7 +110,7 @@ export default function Home() {
 
   const { data: sentMessages = [] } = useQuery({
     queryKey: ['sent-messages'],
-    queryFn: () => supabaseApi.entities.SentMessage.list(),
+    queryFn: () => supabaseApi.entities.SentMessage.list('-created_at'),
   });
 
   const { data: allTemplates = [] } = useQuery({
@@ -114,29 +118,50 @@ export default function Home() {
     queryFn: () => supabaseApi.entities.Template.list(),
   });
 
-  const sentByTab = useMemo(() => {
-    const map = { vana: new Set(), matchtalk: new Set(), greenforms: new Set() };
-    sentMessages.forEach(m => {
-      if (map[m.tab]) map[m.tab].add(m.lead_id);
+  const sentMessageKeys = useMemo(() => {
+    const keys = new Set();
+    sentMessages.forEach((row) => {
+      const key = getSentMessageKeyForRow(row);
+      if (key) keys.add(key);
     });
-    return map;
+    return keys;
   }, [sentMessages]);
 
   /** @type {import('@tanstack/react-query').UseMutationOptions<any, unknown, MarkSentPayload, unknown>} */
   const markSentMutationOptions = {
-    mutationFn: ({ leadId, tab, dayStep, caName }) => supabaseApi.entities.SentMessage.create({
-      lead_id: leadId,
-      tab: tab,
-      day_step: dayStep || 1,
-      sent_at: new Date().toISOString(),
-      sent_by: currentUser?.email || '',
+    mutationFn: ({ lead, leadType, messageText, templateId }) => {
+      const leadSource = getLeadSourceForType(lead, leadType);
+      const sourceRecordId = getSourceRecordIdForLead(lead, leadType);
+
+      return supabaseApi.entities.SentMessage.create({
+      customer_name: lead?.customer_name || null,
+      mobile_number: lead?.mobile_number || lead?.phone_number || '',
+      message_text: messageText || null,
+      template_id: templateId ?? null,
+      lead_source: leadSource,
+      source_record_id: sourceRecordId,
+      sent_by_employee_id: currentUser?.employeeId ?? null,
+      sent_via: 'whatsapp_link',
       status: 'sent',
-      ca_name: caName || '',
-    }),
-    onMutate: ({ leadId, tab }) => {
+      });
+    },
+    onMutate: ({ lead, leadType, messageText, templateId }) => {
+      const leadSource = getLeadSourceForType(lead, leadType);
+      const sourceRecordId = getSourceRecordIdForLead(lead, leadType);
       queryClient.setQueryData(['sent-messages'], (old = []) => {
         const safeOld = Array.isArray(old) ? old : [];
-        const newMsg = { lead_id: leadId, tab: tab, sent_at: new Date().toISOString(), status: 'sent' };
+        const newMsg = {
+          customer_name: lead?.customer_name || null,
+          mobile_number: lead?.mobile_number || lead?.phone_number || '',
+          message_text: messageText || null,
+          template_id: templateId ?? null,
+          lead_source: leadSource,
+          source_record_id: sourceRecordId,
+          sent_by_employee_id: currentUser?.employeeId ?? null,
+          sent_via: 'whatsapp_link',
+          status: 'sent',
+          created_at: new Date().toISOString(),
+        };
         return [...safeOld, newMsg];
       });
     },
@@ -146,8 +171,8 @@ export default function Home() {
 
   const markSentMutation = useMutation(markSentMutationOptions);
 
-  const handleMarkSent = useCallback((leadId, tab, dayStep, caName) => {
-    markSentMutation.mutate({ leadId, tab, dayStep, caName });
+  const handleMarkSent = useCallback((payload) => {
+    markSentMutation.mutate(payload);
   }, [markSentMutation]);
 
   const handleRefresh = useCallback((key) => {
@@ -247,11 +272,11 @@ export default function Home() {
             tab={activeTab}
             accentColor={currentTab.color}
             getMessage={MESSAGES[activeTab]}
-            sentIds={sentByTab[activeTab]}
+            sentMessageKeys={sentMessageKeys}
             sentMessages={sentMessages}
             onMarkSent={handleMarkSent}
             onRefresh={() => handleRefresh(current.refreshKey)}
-            templates={allTemplates.filter(t => t.tab === activeTab || t.tab === 'all')}
+            templates={allTemplates}
             isAdmin={isAdmin}
             users={users}
           />

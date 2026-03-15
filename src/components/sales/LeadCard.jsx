@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { MessageCircle, CheckCircle2, Car, Phone, User, Clock, Paperclip, FileText, ImageIcon } from 'lucide-react';
+import React, { useState } from 'react';
+import { MessageCircle, CheckCircle2, Car, Phone, User, Clock } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerContent, DrawerTrigger } from "@/components/ui/drawer";
 import { cn } from "@/lib/utils";
 import { differenceInDays } from 'date-fns';
 import { getNormalizedLead } from './leadDataHelper';
+import { matchesSentMessageToLead } from '@/utils/sentMessageUtils';
 
 // Follow-up sequence: day 1 (initial), day 2, day 5
 const FOLLOW_UP_DAYS = [1, 2, 5];
@@ -28,32 +29,34 @@ const FOLLOW_UP_MESSAGES = {
   },
 };
 
-function getDaysSinceFirstSent(sentMessages, leadId, tab) {
-  const first = sentMessages
-    .filter(m => m.lead_id === leadId && m.tab === tab && (m.day_step === 1 || !m.day_step))
-    .sort((a, b) => new Date(a.sent_at) - new Date(b.sent_at))[0];
-  if (!first?.sent_at) return null;
-  return differenceInDays(new Date(), new Date(first.sent_at));
+function getDaysSinceFirstSent(history) {
+  if (!history?.length) return null;
+  const first = [...history].sort((a, b) => new Date(a.created_at) - new Date(b.created_at))[0];
+  if (!first?.created_at) return null;
+  return differenceInDays(new Date(), new Date(first.created_at));
 }
 
-function getNextDueStep(sentMessages, leadId, tab) {
-  const sentSteps = new Set(
-    sentMessages
-      .filter(m => m.lead_id === leadId && m.tab === tab)
-      .map(m => m.day_step || 1)
-  );
-  const daysSince = getDaysSinceFirstSent(sentMessages, leadId, tab);
+function getNextDueStep(history, tab) {
+  const sentCount = history?.length || 0;
   const days = tab === 'matchtalk' ? MATCHTALK_FOLLOW_UP_DAYS : FOLLOW_UP_DAYS;
 
-  for (const day of days) {
-    if (!sentSteps.has(day)) {
-      if (day === 1) return { step: 1, daysUntil: 0, overdue: false };
-      if (daysSince !== null && daysSince >= day) return { step: day, daysUntil: 0, overdue: true };
-      if (daysSince !== null) return { step: day, daysUntil: day - daysSince, overdue: false };
-      return null;
-    }
+  if (sentCount >= days.length) return null;
+
+  const nextStep = days[sentCount];
+  if (nextStep === 1) {
+    return { step: 1, daysUntil: 0, overdue: false };
   }
-  return null; // all steps done
+
+  const daysSince = getDaysSinceFirstSent(history);
+  if (daysSince === null) {
+    return { step: nextStep, daysUntil: nextStep, overdue: false };
+  }
+
+  if (daysSince >= nextStep) {
+    return { step: nextStep, daysUntil: 0, overdue: true };
+  }
+
+  return { step: nextStep, daysUntil: nextStep - daysSince, overdue: false };
 }
 
 export default function LeadCard({ lead, tab, accentColor, message, isSent, onMarkSent, templates, sentMessages = [] }) {
@@ -70,7 +73,8 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
   const resolvedGreenFormOwnerId = normalizedLead.salesperson_id || normalizedLead.assigned_to || '';
   const resolvedGreenFormOwnerName = normalizedLead.employee_full_name || normalizedLead.ca_name || '';
 
-   const nextDue = getNextDueStep(sentMessages, lead.id, tab);
+  const historyForLead = sentMessages.filter((row) => matchesSentMessageToLead(row, lead, tab));
+   const nextDue = getNextDueStep(historyForLead, tab);
    const allDone = !nextDue;
 
    // For current step, pick the right message
@@ -80,27 +84,13 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
      ? (stepMessages[currentStep]?.(normalizedLead) || message)
      : message;
 
-   // Check if there's a DB template for current tab + day_step
-   // Prefer PPL-specific match, fallback to no-PPL template
-  const leadPpl = String(isGreenForms ? resolvedCarModel : (normalizedLead.ppl || '')).toLowerCase().trim();
+   // Prefer templates by category; fallback to generic/all categories.
   const dbStepTemplate = (() => {
-    const candidates = templates?.filter(t => {
-      const tabMatch = t.tab === tab || t.tab === 'all';
-      const stepMatch = Number(t.day_step) === currentStep;
-      return tabMatch && stepMatch;
+    const candidates = templates?.filter((t) => {
+      const category = String(t.category || '').toLowerCase();
+      return category === tab || category === 'all' || category === 'general';
     }) || [];
-    
-    if (candidates.length === 0) return null;
-    
-    // First try exact PPL match (case-insensitive, trimmed)
-    if (leadPpl) {
-      const pplMatch = candidates.find(t => t.ppl && t.ppl.toLowerCase().trim() === leadPpl);
-      if (pplMatch) return pplMatch;
-    }
-    
-    // Fallback: no PPL set (applies to all)
-    const genericMatch = candidates.find(t => !t.ppl || t.ppl.toLowerCase().trim() === '');
-    return genericMatch || candidates[0];
+    return candidates.find((t) => t.is_active !== false) || candidates[0] || null;
   })();
 
   const fillPlaceholders = (msg) => msg
@@ -112,7 +102,7 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
     .replace(/{car}/g, isGreenForms ? (resolvedCarModel || normalizedLead.ppl || 'car') : (normalizedLead.ppl || resolvedCarModel || 'car'));
 
   const resolvedDefault = dbStepTemplate
-    ? fillPlaceholders(dbStepTemplate.message)
+    ? fillPlaceholders(dbStepTemplate.template_text)
     : defaultMessage;
 
   const activeMessage = selectedTemplateId === 'default'
@@ -120,32 +110,31 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
     : (() => {
         const t = templates?.find(t => t.id === selectedTemplateId);
         if (!t) return resolvedDefault;
-        return fillPlaceholders(t.message);
+        return fillPlaceholders(t.template_text);
       })();
 
   const phone = String(resolvedPhone).replace(/[^0-9+]/g, '').replace(/^\+/, '');
   const waLink = `https://wa.me/${phone}?text=${encodeURIComponent(activeMessage)}`;
 
-  // Attachments from the active template
+  // Templates are now pure text; no attachment field in operational schema.
   const activeTemplateObj = selectedTemplateId === 'default'
     ? dbStepTemplate
     : templates?.find(t => t.id === selectedTemplateId);
-  const attachments = activeTemplateObj?.attachments?.length ? activeTemplateObj.attachments : [];
 
   const handleSend = () => {
     window.open(waLink, '_blank');
-    const caName = tab === 'greenforms'
-      ? (resolvedGreenFormOwnerName || '')
-      : (normalizedLead.ca_name || '');
-    onMarkSent(lead.id, tab, currentStep, caName);
+    onMarkSent({
+      lead,
+      leadType: tab,
+      messageText: activeMessage,
+      templateId: activeTemplateObj?.id ?? null,
+    });
   };
 
   // Determine badge for follow-up status
-  const sentSteps = new Set(
-    sentMessages
-      .filter(m => m.lead_id === lead.id && m.tab === tab)
-      .map(m => m.day_step || 1)
-  );
+  const days = tab === 'matchtalk' ? MATCHTALK_FOLLOW_UP_DAYS : FOLLOW_UP_DAYS;
+  const sentCount = historyForLead.length;
+  const sentSteps = new Set(days.slice(0, sentCount));
 
   return (
     <div className={cn(
@@ -315,7 +304,7 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
                                 : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200'
                             }`}
                           >
-                            Day {t.day_step} — {t.name}
+                            {t.name}
                           </button>
                         ))}
                     </div>
@@ -325,23 +314,6 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
             )}
           </div>
         </div>
-        {!allDone && attachments.length > 0 && (
-          <div className="w-full mt-2 space-y-1 basis-full">
-            <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 flex items-center gap-1"><Paperclip className="w-3 h-3" /> Attachments — open & share on WhatsApp:</p>
-            {attachments.map((url, idx) => {
-              const isPdf = url.toLowerCase().includes('.pdf');
-              const name = url.split('/').pop().split('?')[0] || `File ${idx + 1}`;
-              return (
-                <a key={idx} href={url} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-2 bg-gray-50 dark:bg-gray-700 border border-gray-100 dark:border-gray-600 rounded-lg px-2.5 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-600 transition-all">
-                  {isPdf ? <FileText className="w-3.5 h-3.5 text-red-400 dark:text-red-500 flex-shrink-0" /> : <ImageIcon className="w-3.5 h-3.5 text-blue-400 dark:text-blue-500 flex-shrink-0" />}
-                  <span className="text-xs text-gray-600 dark:text-gray-200 truncate flex-1">{name}</span>
-                  <span className="text-[10px] text-gray-400 dark:text-gray-500">Tap to open</span>
-                </a>
-              );
-            })}
-          </div>
-        )}
         {!allDone && (
           <div className="flex flex-col items-center gap-1 flex-shrink-0">
             <Button

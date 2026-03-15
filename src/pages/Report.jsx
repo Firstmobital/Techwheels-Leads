@@ -30,7 +30,7 @@ export default function Report() {
 
   const { data: sentMessages = [], isLoading, refetch } = useQuery({
     queryKey: ['sent-messages-report'],
-    queryFn: () => supabaseApi.entities.SentMessage.list('-sent_at'),
+    queryFn: () => supabaseApi.entities.SentMessage.list('-created_at'),
     enabled: !!currentUser,
   });
 
@@ -55,26 +55,27 @@ export default function Report() {
   const filteredMessages = useMemo(() => {
     if (!currentUser) return [];
     if (isAdmin) return sentMessages;
-    return sentMessages.filter(m => m.sent_by === currentUser.email);
+    return sentMessages.filter(m => String(m.sent_by_employee_id || '') === String(currentUser.employeeId || ''));
   }, [sentMessages, currentUser, isAdmin]);
 
-  // Group key: sent_by + date(sent_at)
+  // Group key: sent_by_employee_id + date(created_at)
   const groupedBySenderAndDate = useMemo(() => {
     const grouped = {};
 
     filteredMessages.forEach((m) => {
-      if (!m.sent_at || !m.sent_by) return;
-      const sentDate = m.sent_at.split('T')[0];
+      if (!m.created_at) return;
+      const senderId = String(m.sent_by_employee_id || 'unassigned');
+      const sentDate = m.created_at.split('T')[0];
       if (!sentDate) return;
 
-      const key = `${m.sent_by}::${sentDate}`;
+      const key = `${senderId}::${sentDate}`;
       if (!grouped[key]) {
         grouped[key] = {
-          sent_by: m.sent_by,
+          sent_by_employee_id: senderId,
           sent_date: sentDate,
           total_messages: 0,
           successful_messages: 0,
-          tabs: {},
+          sources: {},
         };
       }
 
@@ -83,8 +84,8 @@ export default function Report() {
         grouped[key].successful_messages += 1;
       }
 
-      if (m.tab) {
-        grouped[key].tabs[m.tab] = (grouped[key].tabs[m.tab] || 0) + 1;
+      if (m.lead_source) {
+        grouped[key].sources[m.lead_source] = (grouped[key].sources[m.lead_source] || 0) + 1;
       }
     });
 
@@ -98,45 +99,35 @@ export default function Report() {
   const messagesPerUser = useMemo(() => {
     const map = {};
     todayGrouped.forEach((g) => {
-      if (!map[g.sent_by]) {
-        map[g.sent_by] = {
-          sent_by: g.sent_by,
+      if (!map[g.sent_by_employee_id]) {
+        map[g.sent_by_employee_id] = {
+          sent_by_employee_id: g.sent_by_employee_id,
           total_messages: 0,
           successful_messages: 0,
-          tabs: {},
+          sources: {},
         };
       }
 
-      map[g.sent_by].total_messages += g.total_messages;
-      map[g.sent_by].successful_messages += g.successful_messages;
-      Object.entries(g.tabs).forEach(([tab, count]) => {
-        map[g.sent_by].tabs[tab] = (map[g.sent_by].tabs[tab] || 0) + Number(count || 0);
+      map[g.sent_by_employee_id].total_messages += g.total_messages;
+      map[g.sent_by_employee_id].successful_messages += g.successful_messages;
+      Object.entries(g.sources).forEach(([source, count]) => {
+        map[g.sent_by_employee_id].sources[source] = (map[g.sent_by_employee_id].sources[source] || 0) + Number(count || 0);
       });
     });
 
-    users.filter(u => u.role === 'user').forEach(u => {
-      if (!map[u.email]) {
-        map[u.email] = {
-          sent_by: u.email,
-          total_messages: 0,
-          successful_messages: 0,
-          tabs: {},
-        };
-      }
-    });
-
     return Object.entries(map)
-      .map(([email, data]) => {
-        const user = users.find(u => u.email === email);
+      .map(([employeeId, data]) => {
+        const user = users.find(u => String(u.id) === String(employeeId));
+        const fullName = [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim();
         return {
-          email,
-          name: user?.full_name ?? email,
+          employeeId,
+          name: fullName || user?.email || `Employee #${employeeId}`,
           total_messages: data.total_messages,
           successful_messages: data.successful_messages,
           success_rate: data.total_messages > 0
             ? Math.round((data.successful_messages / data.total_messages) * 100)
             : 0,
-          tabs: data.tabs,
+          sources: data.sources,
         };
       })
       .sort((a, b) => b.total_messages - a.total_messages);
@@ -157,15 +148,18 @@ export default function Report() {
     : 0;
 
   const handleDownloadCSV = () => {
-    const headers = ['Sent At', 'Tab', 'Day Step', 'Sent By', 'Status', 'CA Name', 'Lead ID'];
+    const headers = ['Created At', 'Lead Source', 'Source Record ID', 'Customer Name', 'Mobile Number', 'Message Text', 'Template ID', 'Sent By Employee ID', 'Sent Via', 'Status'];
     const rows = filteredMessages.map(m => [
-      m.sent_at ? new Date(m.sent_at).toLocaleString('en-IN') : '',
-      m.tab || '',
-      m.day_step || 1,
-      m.sent_by || '',
+      m.created_at ? new Date(m.created_at).toLocaleString('en-IN') : '',
+      m.lead_source || '',
+      m.source_record_id || '',
+      m.customer_name || '',
+      m.mobile_number || '',
+      m.message_text || '',
+      m.template_id || '',
+      m.sent_by_employee_id || '',
+      m.sent_via || '',
       m.status ?? 'sent',
-      m.ca_name || '',
-      m.lead_id || '',
     ]);
     const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -178,14 +172,14 @@ export default function Report() {
   };
 
   const totalContacted = totalMessagesSent;
-  const totalPending = Math.max(0, totalLeads - new Set(filteredMessages.map(m => m.lead_id)).size);
+  const totalPending = Math.max(0, totalLeads - new Set(filteredMessages.map(m => `${m.lead_source || ''}:${m.source_record_id || ''}`)).size);
 
-  const tabColors = {
-    vana: 'bg-amber-100 text-amber-700',
-    matchtalk: 'bg-emerald-100 text-emerald-700',
-    greenforms: 'bg-blue-100 text-blue-700',
+  const sourceColors = {
+    walkin: 'bg-amber-100 text-amber-700',
+    ivr: 'bg-emerald-100 text-emerald-700',
+    ai: 'bg-blue-100 text-blue-700',
   };
-  const tabLabels = { vana: 'VANA', matchtalk: 'MatchTalk', greenforms: 'Green' };
+  const sourceLabels = { walkin: 'Walk-in', ivr: 'IVR', ai: 'AI' };
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col max-w-lg mx-auto">
@@ -242,16 +236,16 @@ export default function Report() {
           ) : (
             <div className="divide-y divide-gray-50">
               {messagesPerUser.map((person) => (
-                <div key={person.email} className="px-4 py-3 flex items-center gap-3">
+                <div key={person.employeeId} className="px-4 py-3 flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-600 flex-shrink-0">
                     {person.name?.[0]?.toUpperCase() || '?'}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-800 truncate">{person.name}</p>
                     <div className="flex gap-1 mt-1 flex-wrap">
-                      {Object.entries(person.tabs).map(([tab, count]) => (
-                        <span key={tab} className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${tabColors[tab] || 'bg-gray-100 text-gray-600'}`}>
-                          {tabLabels[tab] || tab}: {count}
+                      {Object.entries(person.sources).map(([source, count]) => (
+                        <span key={source} className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${sourceColors[source] || 'bg-gray-100 text-gray-600'}`}>
+                          {sourceLabels[source] || source}: {count}
                         </span>
                       ))}
                       {person.total_messages === 0 && (
@@ -276,27 +270,27 @@ export default function Report() {
           )}
         </div>
 
-        {/* Tab breakdown for today */}
+        {/* Lead source breakdown for today */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-50">
-            <h2 className="font-semibold text-sm text-gray-800">Today's Breakdown by Tab</h2>
+            <h2 className="font-semibold text-sm text-gray-800">Today's Breakdown by Lead Source</h2>
           </div>
           <div className="divide-y divide-gray-50">
-            {['vana', 'matchtalk', 'greenforms'].map(tab => {
+            {['walkin', 'ivr', 'ai'].map(source => {
               const count = filteredMessages
-                .filter(m => m.sent_at && m.sent_at.split('T')[0] === today && m.tab === tab)
+                .filter(m => m.created_at && m.created_at.split('T')[0] === today && m.lead_source === source)
                 .length;
-              const total = { vana: vanaLeads.length, matchtalk: matchLeads.length, greenforms: greenLeads.length }[tab];
-              const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+              const total = Math.max(totalMessagesSent, 1);
+              const pct = Math.round((count / total) * 100);
               return (
-                <div key={tab} className="px-4 py-3">
+                <div key={source} className="px-4 py-3">
                   <div className="flex justify-between items-center mb-1.5">
-                    <span className="text-sm font-medium text-gray-700">{tabLabels[tab]}</span>
+                    <span className="text-sm font-medium text-gray-700">{sourceLabels[source]}</span>
                     <span className="text-xs text-gray-500">{count} / {total}</span>
                   </div>
                   <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                     <div
-                      className={`h-full rounded-full transition-all ${tab === 'vana' ? 'bg-amber-400' : tab === 'matchtalk' ? 'bg-emerald-400' : 'bg-blue-400'}`}
+                      className={`h-full rounded-full transition-all ${source === 'walkin' ? 'bg-amber-400' : source === 'ivr' ? 'bg-emerald-400' : 'bg-blue-400'}`}
                       style={{ width: `${pct}%` }}
                     />
                   </div>

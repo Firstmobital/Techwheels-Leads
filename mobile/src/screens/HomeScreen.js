@@ -20,6 +20,66 @@ import { supabase } from "../lib/supabase";
 const FOLLOW_UP_DAYS = [1, 2, 5];
 const MATCHTALK_FOLLOW_UP_DAYS = [1, 2, 4];
 
+const VALID_LEAD_SOURCES = new Set(["walkin", "ivr", "ai"]);
+const TAB_TO_DEFAULT_SOURCE = {
+  vana: "walkin",
+  matchtalk: "walkin",
+  greenforms: "walkin",
+  ai_leads: "ai",
+};
+
+const normalizeLeadSource = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  return VALID_LEAD_SOURCES.has(normalized) ? normalized : null;
+};
+
+const parseCompositeLeadId = (id) => {
+  const raw = String(id || "").trim();
+  const splitIndex = raw.indexOf(":");
+  if (splitIndex <= 0 || splitIndex >= raw.length - 1) {
+    return { source: null, recordId: raw || null };
+  }
+  return {
+    source: normalizeLeadSource(raw.slice(0, splitIndex)),
+    recordId: raw.slice(splitIndex + 1),
+  };
+};
+
+const getLeadSourceForType = (lead, tabId) => {
+  const fromLead = normalizeLeadSource(lead?.source_type || lead?.lead_source || lead?.source_pv);
+  if (fromLead) return fromLead;
+  return normalizeLeadSource(TAB_TO_DEFAULT_SOURCE[tabId]) || "walkin";
+};
+
+const getSourceRecordIdForLead = (lead) => {
+  const explicit = lead?.source_record_id;
+  if (explicit !== null && explicit !== undefined && String(explicit).trim()) {
+    return String(explicit).trim();
+  }
+
+  const parsed = parseCompositeLeadId(lead?.id);
+  if (parsed.recordId) return parsed.recordId;
+
+  return lead?.id !== null && lead?.id !== undefined ? String(lead.id) : null;
+};
+
+const buildSentMessageKey = (leadSource, sourceRecordId) => {
+  const source = normalizeLeadSource(leadSource);
+  const record = String(sourceRecordId || "").trim();
+  if (!source || !record) return null;
+  return `${source}:${record}`;
+};
+
+const getSentMessageKeyForLead = (lead, tabId) => {
+  const leadSource = getLeadSourceForType(lead, tabId);
+  const sourceRecordId = getSourceRecordIdForLead(lead);
+  return buildSentMessageKey(leadSource, sourceRecordId);
+};
+
+const getSentMessageKeyForRow = (row) => {
+  return buildSentMessageKey(row?.lead_source, row?.source_record_id);
+};
+
 const TABS = [
   {
     id: "vana",
@@ -122,11 +182,14 @@ export default function HomeScreen() {
     activeFilters.selectedBranch !== "all" ||
     activeFilters.allocationOnly;
 
-  const sentLeadIds = useMemo(() => {
-    return new Set(
-      sentMessages.filter((item) => item.tab === activeTab).map((item) => String(item.lead_id))
-    );
-  }, [sentMessages, activeTab]);
+  const sentMessageKeys = useMemo(() => {
+    const keys = new Set();
+    sentMessages.forEach((row) => {
+      const key = getSentMessageKeyForRow(row);
+      if (key) keys.add(key);
+    });
+    return keys;
+  }, [sentMessages]);
 
   const modelField = "model_name";
   const personField = tabConfig.caField;
@@ -174,12 +237,12 @@ export default function HomeScreen() {
       const customer = String(lead?.customer_name || "").toLowerCase();
       const phone = String(lead?.mobile_number || lead?.phone_number || "");
       const modelValue = String(lead?.[modelField] || lead?.ppl || lead?.car_model || "");
-      const leadId = String(lead?.id || "");
+      const leadSentKey = getSentMessageKeyForLead(lead, activeTab);
 
       const matchesSearch =
         !query || customer.includes(query) || phone.includes(query) || modelValue.toLowerCase().includes(query);
       const matchesModel = activeFilters.selectedModel === "all" || modelValue === activeFilters.selectedModel;
-      const matchesSent = activeFilters.showSentLeads || !sentLeadIds.has(leadId);
+      const matchesSent = activeFilters.showSentLeads || !leadSentKey || !sentMessageKeys.has(leadSentKey);
       const personValue = String(lead?.[personField] || "").trim();
       const sourceValue = String(lead?.source_pv || "").trim();
       const branchValue = String(lead?.branch || "").trim();
@@ -203,8 +266,9 @@ export default function HomeScreen() {
     leads,
     activeFilters,
     modelField,
-    sentLeadIds,
+    sentMessageKeys,
     personField,
+    activeTab,
   ]);
 
   const getMessageForStep = (tabId, lead, step) => {
@@ -233,46 +297,36 @@ export default function HomeScreen() {
     return `Hello ${customerName},\n\nFinal follow-up regarding the ${carModel}. We would be happy to assist whenever you are ready.`;
   };
 
-  const getDaysSinceFirstSent = (leadId, tabId) => {
-    const first = sentMessages
-      .filter((m) => m.lead_id === leadId && m.tab === tabId && (m.day_step === 1 || !m.day_step))
-      .sort((a, b) => new Date(a.sent_at) - new Date(b.sent_at))[0];
-
-    if (!first?.sent_at) return null;
+  const getDaysSinceFirstSent = (history) => {
+    if (!history?.length) return null;
+    const first = [...history].sort((a, b) => new Date(a.created_at) - new Date(b.created_at))[0];
+    if (!first?.created_at) return null;
 
     const oneDayMs = 1000 * 60 * 60 * 24;
-    return Math.floor((Date.now() - new Date(first.sent_at).getTime()) / oneDayMs);
+    return Math.floor((Date.now() - new Date(first.created_at).getTime()) / oneDayMs);
   };
 
-  const getNextDueStep = (leadId, tabId) => {
-    const sentSteps = new Set(
-      sentMessages
-        .filter((m) => m.lead_id === leadId && m.tab === tabId)
-        .map((m) => Number(m.day_step) || 1)
-    );
-
+  const getNextDueStep = (history, tabId) => {
     const daysSequence = tabId === "matchtalk" ? MATCHTALK_FOLLOW_UP_DAYS : FOLLOW_UP_DAYS;
-    const daysSinceFirst = getDaysSinceFirstSent(leadId, tabId);
+    const sentCount = history?.length || 0;
 
-    for (const day of daysSequence) {
-      if (sentSteps.has(day)) continue;
+    if (sentCount >= daysSequence.length) return null;
 
-      if (day === 1) {
-        return { step: 1, overdue: false, daysUntil: 0 };
-      }
-
-      if (daysSinceFirst !== null && daysSinceFirst >= day) {
-        return { step: day, overdue: true, daysUntil: 0 };
-      }
-
-      if (daysSinceFirst !== null) {
-        return { step: day, overdue: false, daysUntil: Math.max(day - daysSinceFirst, 0) };
-      }
-
-      return { step: day, overdue: false, daysUntil: day };
+    const nextStep = daysSequence[sentCount];
+    if (nextStep === 1) {
+      return { step: 1, overdue: false, daysUntil: 0 };
     }
 
-    return null;
+    const daysSinceFirst = getDaysSinceFirstSent(history);
+    if (daysSinceFirst === null) {
+      return { step: nextStep, overdue: false, daysUntil: nextStep };
+    }
+
+    if (daysSinceFirst >= nextStep) {
+      return { step: nextStep, overdue: true, daysUntil: 0 };
+    }
+
+    return { step: nextStep, overdue: false, daysUntil: Math.max(nextStep - daysSinceFirst, 0) };
   };
 
   const normalizePhone = (value) => String(value || "").replace(/[^0-9]/g, "");
@@ -288,24 +342,28 @@ export default function HomeScreen() {
       .replace(/{car}/g, lead?.ppl || lead?.car_model || "car");
   };
 
-  const getTemplateOptionsForLeadStep = (lead, step) => {
-    const leadPpl = String(lead?.ppl || "").trim().toLowerCase();
+  const getTemplateOptionsForLeadStep = (lead) => {
+    const leadLanguage = String(lead?.language || lead?.preferred_language || "en").trim().toLowerCase();
     const relevant = templates.filter((template) => {
-      const tabMatch = template?.tab === activeTab || template?.tab === "all";
-      const stepMatch = Number(template?.day_step) === Number(step);
-      return tabMatch && stepMatch;
+      const category = String(template?.category || "").trim().toLowerCase();
+      const categoryMatch = category === activeTab || category === "all" || category === "general";
+      const active = template?.is_active !== false;
+      return categoryMatch && active;
     });
 
-    if (!leadPpl) {
-      return relevant;
+    const languageSpecific = relevant.filter(
+      (template) => String(template?.language || "").trim().toLowerCase() === leadLanguage
+    );
+    if (languageSpecific.length > 0) {
+      return languageSpecific;
     }
 
-    const pplSpecific = relevant.filter(
-      (template) => String(template?.ppl || "").trim().toLowerCase() === leadPpl
-    );
-    const generic = relevant.filter((template) => !String(template?.ppl || "").trim());
+    const defaults = relevant.filter((template) => {
+      const language = String(template?.language || "").trim().toLowerCase();
+      return !language || language === "en";
+    });
 
-    return [...pplSpecific, ...generic];
+    return defaults.length > 0 ? defaults : relevant;
   };
 
   const getPreviewMessage = (previewState) => {
@@ -318,68 +376,16 @@ export default function HomeScreen() {
       (template) => String(template.id) === String(previewState.selectedTemplateId)
     );
 
-    if (!selectedTemplate?.message) {
+    if (!selectedTemplate?.template_text) {
       return previewState.defaultMessage;
     }
 
-    return fillTemplatePlaceholders(selectedTemplate.message, previewState.lead);
-  };
-
-  const getSelectedTemplate = (previewState) => {
-    if (!previewState || previewState.selectedTemplateId === "default") {
-      return null;
-    }
-
-    return (
-      previewState.templateOptions.find(
-        (template) => String(template.id) === String(previewState.selectedTemplateId)
-      ) || null
-    );
-  };
-
-  const getTemplateAttachments = (previewState) => {
-    const selectedTemplate = getSelectedTemplate(previewState);
-    if (!selectedTemplate) return [];
-
-    const raw = selectedTemplate.attachments;
-    if (Array.isArray(raw)) {
-      return raw.filter((item) => typeof item === "string" && item.trim().length > 0);
-    }
-
-    if (typeof raw === "string") {
-      const trimmed = raw.trim();
-      if (!trimmed) return [];
-
-      try {
-        const parsed = JSON.parse(trimmed);
-        if (Array.isArray(parsed)) {
-          return parsed.filter((item) => typeof item === "string" && item.trim().length > 0);
-        }
-      } catch {
-        return [trimmed];
-      }
-    }
-
-    return [];
-  };
-
-  const handleOpenAttachment = async (url) => {
-    if (!url) return;
-
-    try {
-      const canOpen = await Linking.canOpenURL(url);
-      if (!canOpen) {
-        throw new Error("Unable to open this attachment on your device.");
-      }
-      await Linking.openURL(url);
-    } catch (attachmentError) {
-      Alert.alert("Attachment error", attachmentError?.message || "Unable to open attachment.");
-    }
+    return fillTemplatePlaceholders(selectedTemplate.template_text, previewState.lead);
   };
 
   const openMessagePreview = (lead, nextStep) => {
     const defaultMessage = getMessageForStep(activeTab, lead, nextStep.step);
-    const templateOptions = getTemplateOptionsForLeadStep(lead, nextStep.step);
+    const templateOptions = getTemplateOptionsForLeadStep(lead);
 
     setPreview({
       lead,
@@ -410,14 +416,25 @@ export default function HomeScreen() {
 
       await Linking.openURL(waUrl);
 
+      const selectedTemplate = preview.selectedTemplateId === "default"
+        ? null
+        : preview.templateOptions.find(
+            (template) => String(template.id) === String(preview.selectedTemplateId)
+          ) || null;
+
+      const leadSource = getLeadSourceForType(preview.lead, activeTab);
+      const sourceRecordId = getSourceRecordIdForLead(preview.lead);
+
       const payload = {
-        lead_id: preview.lead.id,
-        tab: activeTab,
-        day_step: preview.step,
-        sent_at: new Date().toISOString(),
-        sent_by: user?.email || "",
+        customer_name: preview.lead.customer_name || null,
+        mobile_number: preview.lead.mobile_number || preview.lead.phone_number || "",
+        message_text: resolvedMessage,
+        template_id: selectedTemplate?.id ?? null,
+        lead_source: leadSource,
+        source_record_id: sourceRecordId,
+        sent_by_employee_id: employeeId ?? null,
+        sent_via: "whatsapp_link",
         status: "sent",
-        ca_name: preview.lead.employee_full_name || preview.lead.ca_name || userFullName,
       };
 
       const { data, error: insertError } = await supabase
@@ -470,14 +487,12 @@ export default function HomeScreen() {
       supabase
         .from("sent_messages")
         .select("*")
-        .eq("tab", tabConfig.id)
-        .order("sent_at", { ascending: false })
+        .order("created_at", { ascending: false })
         .limit(500),
       supabase
         .from("templates")
         .select("*")
-        .or(`tab.eq.${tabConfig.id},tab.eq.all`)
-        .order("day_step", { ascending: true }),
+        .order("updated_at", { ascending: false }),
     ]);
 
     if (leadsResult.error) {
@@ -727,7 +742,7 @@ export default function HomeScreen() {
 
           <Text style={styles.countText}>
             {filteredLeads.length} leads
-            {sentLeadIds.size > 0 ? ` • ${sentLeadIds.size} sent` : ""}
+            {sentMessageKeys.size > 0 ? ` • ${sentMessageKeys.size} sent` : ""}
           </Text>
         </View>
 
@@ -757,15 +772,17 @@ export default function HomeScreen() {
                 tabConfig.caField && item?.[tabConfig.caField]
                   ? item[tabConfig.caField]
                   : item?.assigned_to || "Unassigned";
-              const nextStep = getNextDueStep(item.id, activeTab);
+              const leadKey = getSentMessageKeyForLead(item, activeTab);
+              const history = sentMessages.filter((m) => {
+                const msgKey = getSentMessageKeyForRow(m);
+                return Boolean(leadKey && msgKey && msgKey === leadKey);
+              });
+              const nextStep = getNextDueStep(history, activeTab);
               const isDone = !nextStep;
               const isOverdue = Boolean(nextStep?.overdue);
 
-              const sentSteps = new Set(
-                sentMessages
-                  .filter((m) => m.lead_id === item.id && m.tab === activeTab)
-                  .map((m) => Number(m.day_step) || 1)
-              );
+              const followupDays = activeTab === "matchtalk" ? MATCHTALK_FOLLOW_UP_DAYS : FOLLOW_UP_DAYS;
+              const sentSteps = new Set(followupDays.slice(0, history.length));
 
               return (
                 <View style={styles.leadCard}>
@@ -774,7 +791,7 @@ export default function HomeScreen() {
                   <Text style={styles.leadMeta}>Assigned: {assignedTo}</Text>
 
                   <View style={styles.stepRow}>
-                    {(activeTab === "matchtalk" ? MATCHTALK_FOLLOW_UP_DAYS : FOLLOW_UP_DAYS).map((day) => {
+                    {followupDays.map((day) => {
                       const sent = sentSteps.has(day);
                       return (
                         <View
@@ -870,7 +887,7 @@ export default function HomeScreen() {
                           }
                         >
                           <Text style={[styles.templatePillText, isSelected && styles.templatePillTextActive]}>
-                            {template.name || `Day ${template.day_step}`}
+                            {template.name || "Template"}
                           </Text>
                         </Pressable>
                       );
@@ -882,24 +899,6 @@ export default function HomeScreen() {
               <ScrollView style={styles.messageBox}>
                 <Text style={styles.messageText}>{getPreviewMessage(preview)}</Text>
               </ScrollView>
-
-              {preview && getTemplateAttachments(preview).length > 0 ? (
-                <View style={styles.attachmentsWrap}>
-                  <Text style={styles.attachmentsLabel}>Template Attachments</Text>
-                  {getTemplateAttachments(preview).map((url, index) => (
-                    <Pressable
-                      key={`${url}-${index}`}
-                      style={styles.attachmentItem}
-                      onPress={() => handleOpenAttachment(url)}
-                    >
-                      <Text numberOfLines={1} style={styles.attachmentText}>
-                        {url.split("/").pop()?.split("?")[0] || `Attachment ${index + 1}`}
-                      </Text>
-                      <Text style={styles.attachmentHint}>Open</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              ) : null}
 
               <View style={styles.modalActions}>
                 <Pressable style={styles.modalCancel} onPress={() => setPreview(null)}>

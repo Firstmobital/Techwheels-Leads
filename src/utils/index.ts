@@ -3,12 +3,14 @@ export function createPageUrl(pageName: string) {
 }
 
 export type Template = {
-    id: string;
+    id: number;
     name: string;
-    tab: string;
-    day_step: number;
-    message: string;
-    ppl: string | null;
-    attachments: string[];
+    category: string;
+    channel: string;
+    language: string;
+    template_text: string;
+    is_active: boolean;
+    created_by: string | null;
     created_at: string;
+    updated_at: string;
 };

@@ -4,10 +4,11 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem } from "@/components/ui/select";
 import MobileSelect from '@/components/shared/MobileSelect';
+import { getSentMessageKeyForLead } from '@/utils/sentMessageUtils';
 
 import LeadCard from './LeadCard';
 
-export default function TabContent({ leads, isLoading, tab, accentColor, getMessage, sentIds, sentMessages = [], onMarkSent, onRefresh, templates, isAdmin, users = [] }) {
+export default function TabContent({ leads, isLoading, tab, accentColor, getMessage, sentMessageKeys = new Set(), sentMessages = [], onMarkSent, onRefresh, templates, isAdmin, users = [] }) {
   const [search, setSearch] = useState('');
   const [carFilter, setCarFilter] = useState('all');
   const [showSent, setShowSent] = useState(false);
@@ -108,7 +109,9 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
         : tab === 'greenforms'
           ? resolvedGreenFormModel === carFilter
           : leadData.car_model === carFilter);
-      const matchSent = showSent || !sentIds.has(lead.id);
+      const leadSentKey = getSentMessageKeyForLead(leadData, tab);
+      const isLeadSent = leadSentKey ? sentMessageKeys.has(leadSentKey) : false;
+      const matchSent = showSent || !isLeadSent;
       const matchPerson = personFilter === 'all' || (tab === 'greenforms' ? leadData.salesperson_id === personFilter : leadData.ca_name === personFilter);
       const matchAllocation = allocationFilter === 'all' || (tab === 'vana' && resolvedVnaAllocation === 'next in allocation');
       const matchPpl = pplFilter === 'all' || resolvedGreenFormModel === pplFilter;
@@ -116,7 +119,7 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
       const matchBranch = branchFilter === 'all' || leadData.branch === branchFilter;
       return matchSearch && matchCar && matchSent && matchPerson && matchAllocation && matchPpl && matchSource && matchBranch;
     });
-  }, [leads, search, carFilter, showSent, sentIds, personFilter, allocationFilter, pplFilter, sourceFilter, branchFilter]);
+  }, [leads, search, carFilter, showSent, sentMessageKeys, personFilter, allocationFilter, pplFilter, sourceFilter, branchFilter, tab]);
 
   // Save scroll position when tab changes
   useEffect(() => {
@@ -234,7 +237,7 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
         <div className="flex items-center justify-between">
           <div className="text-[11px] text-gray-400 font-medium">
             {filtered.length} lead{filtered.length !== 1 ? 's' : ''} 
-            {sentIds.size > 0 && ` · ${sentIds.size} sent`}
+            {sentMessageKeys.size > 0 && ` · ${sentMessageKeys.size} sent`}
           </div>
         </div>
       </div>
@@ -279,19 +282,23 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
           </div>
         ) : (
           <div className="space-y-3">
-            {filtered.map(lead => (
-              <LeadCard
-                key={lead.id}
-                lead={lead}
-                tab={tab}
-                accentColor={accentColor}
-                message={getMessage(lead)}
-                isSent={sentIds.has(lead.id)}
-                sentMessages={sentMessages.filter(m => m.lead_id === lead.id && m.tab === tab)}
-                onMarkSent={onMarkSent}
-                templates={templates}
-              />
-            ))}
+            {filtered.map(lead => {
+              const leadKey = getSentMessageKeyForLead(lead, tab);
+              const isLeadSent = Boolean(leadKey && sentMessageKeys.has(leadKey));
+              return (
+                <LeadCard
+                  key={lead.id}
+                  lead={lead}
+                  tab={tab}
+                  accentColor={accentColor}
+                  message={getMessage(lead)}
+                  isSent={isLeadSent}
+                  sentMessages={sentMessages}
+                  onMarkSent={onMarkSent}
+                  templates={templates}
+                />
+              );
+            })}
           </div>
         )}
       </div>

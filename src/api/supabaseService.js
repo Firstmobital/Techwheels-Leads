@@ -22,6 +22,12 @@ const ENTITY_SORT_COLUMN_MAPS = {
     created_date: 'created_at',
     updated_date: 'updated_at'
   },
+
+  MatchedStockCustomer: {
+  created_date: 'stage_3_date',
+  updated_date: 'stock_updated_at'
+},
+
   VNAStock: {
     created_date: 'created_at',
     updated_date: 'updated_at'
@@ -110,7 +116,7 @@ const normalizeAILeadReadRow = (row, employeeById = new Map()) => {
 const normalizeVNAStockReadRow = (row) => {
   const safe = row ?? {};
 
-  const id = normalizeNullable(safe.id ?? safe.lead_id);
+  const id = normalizeNullable(safe.id);
   const customerName = normalizeNullable(safe.customer_name);
   const phoneNumber = normalizeNullable(safe.phone_number ?? safe.mobile_number);
   const carModel = normalizeNullable(safe.car_model ?? safe.ppl ?? safe.model_name);
