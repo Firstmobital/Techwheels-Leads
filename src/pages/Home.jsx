@@ -87,7 +87,7 @@ export default function Home() {
     return leads.filter(l => {
       const leadData = l;
       
-      // Try salesperson_id (UUID) first
+      // Try salesperson_id (BigInt) first
       const leadSalespersonId = leadData.salesperson_id ?? null;
       if (leadSalespersonId && currentEmployeeId) {
         return String(leadSalespersonId) === String(currentEmployeeId);

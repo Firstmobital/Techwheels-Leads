@@ -30,7 +30,7 @@ export function AuthProvider({ children }) {
           name
         )
       `)
-      .eq("id", nextUser.id)
+      .eq("auth_user_id", nextUser.id)
       .maybeSingle();
 
     if (error || !data) {
@@ -39,7 +39,7 @@ export function AuthProvider({ children }) {
         email: nextUser.email,
         role: null,
         fullName: "",
-        employeeId: nextUser.id,
+        employeeId: null,
       });
       return;
     }

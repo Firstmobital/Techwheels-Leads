@@ -1,56 +1,29 @@
 -- ==============================================================================
--- BASELINE SCHEMA FOR NEW OPERATIONAL DB
+-- CORE SCHEMA FOR OPERATIONAL DB (MINIMAL)
 -- ==============================================================================
--- This baseline represents the single source of truth for the active
--- dealership platform. All legacy tables (ai_generated_leads, profiles,
--- vana_leads, matchtalk_leads, greenform_leads, sync_logs) have been 
--- omitted from code as they belong to the retired sync architecture database.
+-- This migration contains ONLY the newly introduced objects for the 
+-- new architecture.
+-- 
+-- The following entities are treated as external truth (already exist in DB):
+--   - employees, roles, departments, locations, showroom_walkins, 
+--     ivr_leads, car, vna_stock (view), matched_stock_customers (view)
 -- ==============================================================================
 
 -- Enable UUID extension if not present
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ==============================================================================
--- 1. EMPLOYEES & ROLES (Replaces legacy profiles table)
---    Note: In real operational DB, there could be a join table or array for CA names
---    but for the bare minimum baseline context provided we assume a simplified 
---    structure as required by active functions/views.
+-- 1. TABLES
 -- ==============================================================================
 
-CREATE TABLE IF NOT EXISTS public.roles (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    role_name TEXT UNIQUE NOT NULL,
-    role_code TEXT UNIQUE NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS public.employees (
-    id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
-    email TEXT UNIQUE NOT NULL,
-    first_name TEXT,
-    last_name TEXT,
-    role_id UUID REFERENCES public.roles(id),
-    location_id UUID,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Active DB is assumed to have RLS enabled
-ALTER TABLE public.employees ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.roles ENABLE ROW LEVEL SECURITY;
-
--- ==============================================================================
--- 2. OPERATIONAL LEAD TABLES
--- ==============================================================================
-
+-- AI Leads: Captured from chatbot conversations
 CREATE TABLE IF NOT EXISTS public.ai_leads (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     customer_name TEXT,
     mobile_number TEXT,
     model_name TEXT,
-    salesperson_id UUID REFERENCES public.employees(id),
-    location_id UUID,
+    salesperson_id BIGINT,
+    location_id BIGINT,
     source_conversation_id TEXT,
     remarks TEXT,
     greenform_requested BOOLEAN DEFAULT false,
@@ -61,74 +34,48 @@ CREATE TABLE IF NOT EXISTS public.ai_leads (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS public.showroom_walkins (
+-- Unique index to enable idempotent upserts from the chatbot handoff.
+CREATE UNIQUE INDEX IF NOT EXISTS ai_leads_source_conversation_id_key
+  ON public.ai_leads (source_conversation_id)
+  WHERE source_conversation_id IS NOT NULL;
+
+-- Sent Messages Log: Tracking communications sent to leads
+CREATE TABLE IF NOT EXISTS public.sent_messages (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    customer_name TEXT,
-    mobile_number TEXT,
-    model_name TEXT,
-    salesperson_id UUID REFERENCES public.employees(id),
-    location_id UUID,
-    greenform_requested BOOLEAN DEFAULT false,
-    opty_id TEXT,
-    opty_status TEXT,
-    opty_submitted_at TIMESTAMPTZ,
+    lead_id TEXT,  -- Supports composite IDs (e.g., ai:uuid)
+    tab TEXT,
+    day_step INTEGER DEFAULT 1,
+    ca_name TEXT,
+    sent_by TEXT,
+    status TEXT DEFAULT 'sent',
+    sent_at TIMESTAMPTZ DEFAULT NOW(),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS public.ivr_leads (
+-- Messaging Templates: Standard responses across different tabs
+CREATE TABLE IF NOT EXISTS public.templates (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    customer_name TEXT,
-    mobile_number TEXT,
-    model_name TEXT,
-    salesperson_id UUID REFERENCES public.employees(id),
-    location_id UUID,
-    greenform_requested BOOLEAN DEFAULT false,
-    opty_id TEXT,
-    opty_status TEXT,
-    opty_submitted_at TIMESTAMPTZ,
+    tab TEXT,
+    name TEXT,
+    message TEXT,
+    day_step INTEGER NOT NULL DEFAULT 1,
+    ppl TEXT,
+    attachments TEXT[] DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS public.vna_stock (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    customer_name TEXT,
-    mobile_number TEXT,
-    model_name TEXT,
-    chassis_no TEXT,
-    colour TEXT,
-    branch TEXT,
-    employee_full_name TEXT,
-    opty_status TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS public.matched_stock_customer (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    customer_name TEXT,
-    mobile_number TEXT,
-    model_name TEXT,
-    chassis_no TEXT,
-    colour TEXT,
-    employee_full_name TEXT,
-    opty_status TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
+-- Enable RLS
 ALTER TABLE public.ai_leads ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.showroom_walkins ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.ivr_leads ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.vna_stock ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.matched_stock_customer ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sent_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.templates ENABLE ROW LEVEL SECURITY;
 
 -- ==============================================================================
--- 3. VIEWS (Replacing legacy greenform_leads functionality)
+-- 2. VIEWS (Unified Reporting Layer)
 -- ==============================================================================
 
--- Pending Greenforms: e.g., AI Leads requesting a greenform
+-- Pending Greenforms: e.g., AI Leads requesting a greenform but not yet submitted
 CREATE OR REPLACE VIEW public.greenform_pending_leads AS
 SELECT
     'ai'::text AS source_type,
@@ -150,7 +97,8 @@ WHERE al.greenform_requested = true
   AND (al.opty_id IS NULL OR btrim(al.opty_id) = '')
   AND lower(btrim(COALESCE(al.opty_status, ''))) != 'submitted';
 
--- Submitted Greenforms (Unified across operational pipelines)
+-- Submitted Greenforms: Unified view across Walk-ins, IVR, and AI pipelines
+-- References existing tables: employees, showroom_walkins, ivr_leads
 CREATE OR REPLACE VIEW public.greenform_submitted_leads AS
 WITH employee_names AS (
   SELECT
@@ -252,33 +200,39 @@ UNION ALL
 SELECT * FROM submitted_ai_leads;
 
 -- ==============================================================================
--- 4. UTILITY TABLES (Sent Messages, Templates)
+-- 3. RLS POLICIES
 -- ==============================================================================
 
-CREATE TABLE IF NOT EXISTS public.sent_messages (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    lead_id TEXT,  -- Using TEXT to support composite IDs (e.g., ai:uuid)
-    tab TEXT,
-    day_step INTEGER DEFAULT 1,
-    ca_name TEXT,
-    sent_by TEXT,
-    status TEXT DEFAULT 'sent',
-    sent_at TIMESTAMPTZ DEFAULT NOW(),
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+-- AI_LEADS
+CREATE POLICY "ai_leads_select_authenticated"
+  ON public.ai_leads FOR SELECT TO authenticated USING (true);
 
-CREATE TABLE IF NOT EXISTS public.templates (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    tab TEXT,
-    name TEXT,
-    message TEXT,
-    day_step INTEGER NOT NULL DEFAULT 1,
-    ppl TEXT,
-    attachments TEXT[] DEFAULT '{}',
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+CREATE POLICY "ai_leads_insert_service_role"
+  ON public.ai_leads FOR INSERT TO service_role WITH CHECK (true);
 
-ALTER TABLE public.sent_messages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.templates ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "ai_leads_update_authenticated"
+  ON public.ai_leads FOR UPDATE TO authenticated USING (
+    salesperson_id IS NULL OR 
+    EXISTS (
+      SELECT 1 FROM employees e 
+      WHERE e.id = ai_leads.salesperson_id 
+      AND e.auth_user_id = auth.uid()
+    )
+  );
+
+-- SENT_MESSAGES
+CREATE POLICY "sent_messages_select_authenticated"
+  ON public.sent_messages FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "sent_messages_insert_authenticated"
+  ON public.sent_messages FOR INSERT TO authenticated WITH CHECK (true);
+
+-- TEMPLATES
+CREATE POLICY "templates_select_authenticated"
+  ON public.templates FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "templates_all_service_role"
+  ON public.templates FOR ALL TO service_role USING (true);
+
+CREATE POLICY "templates_write_authenticated"
+  ON public.templates FOR ALL TO authenticated USING (true) WITH CHECK (true);

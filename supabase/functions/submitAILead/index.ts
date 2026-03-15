@@ -160,13 +160,18 @@ Deno.serve(async (req: Request) => {
   if (isNonEmptyString(body.model_name)) payload.model_name = body.model_name.trim();
   if (isNonEmptyString(body.remarks)) payload.remarks = body.remarks.trim();
 
-  // UUIDs — validate format before inserting.
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (isNonEmptyString(body.location_id) && uuidRegex.test(body.location_id.trim())) {
-    payload.location_id = body.location_id.trim();
+  // BigInt IDs — validate they are numeric strings or numbers.
+  if (body.location_id !== null && body.location_id !== undefined) {
+    const lid = String(body.location_id).trim();
+    if (/^\d+$/.test(lid)) {
+      payload.location_id = lid;
+    }
   }
-  if (isNonEmptyString(body.salesperson_id) && uuidRegex.test(body.salesperson_id.trim())) {
-    payload.salesperson_id = body.salesperson_id.trim();
+  if (body.salesperson_id !== null && body.salesperson_id !== undefined) {
+    const sid = String(body.salesperson_id).trim();
+    if (/^\d+$/.test(sid)) {
+      payload.salesperson_id = sid;
+    }
   }
 
   // --- Idempotent upsert on source_conversation_id ---

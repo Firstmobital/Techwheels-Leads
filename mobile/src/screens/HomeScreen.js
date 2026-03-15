@@ -33,7 +33,7 @@ const TABS = [
   {
     id: "matchtalk",
     label: "Match",
-    table: "matched_stock_customer",
+    table: "matched_stock_customers",
     orderBy: "created_at",
     caField: "employee_full_name",
     titleField: "customer_name",

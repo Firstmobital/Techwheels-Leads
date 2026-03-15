@@ -72,7 +72,7 @@ async function isAuthorizedRequest(req: Request): Promise<boolean> {
   const { data: employee, error: empError } = await supabaseAdmin
     .from("employees")
     .select("id, roles(code)")
-    .eq("id", userId)
+    .eq("auth_user_id", userId)
     .maybeSingle();
 
   if (empError || !employee) return false;
@@ -85,7 +85,7 @@ async function isAuthorizedRequest(req: Request): Promise<boolean> {
  * Resolve the UUID of the role given a role code string (e.g., "user", "admin").
  * Returns null if the role does not exist in the roles table.
  */
-async function resolveRoleId(roleCode: string): Promise<string | null> {
+async function resolveRoleId(roleCode: string): Promise<any | null> {
   const { data, error } = await supabaseAdmin
     .from("roles")
     .select("id")
@@ -93,7 +93,7 @@ async function resolveRoleId(roleCode: string): Promise<string | null> {
     .maybeSingle();
 
   if (error || !data) return null;
-  return (data as any).id as string;
+  return (data as any).id;
 }
 
 Deno.serve(async (req: Request) => {
@@ -179,12 +179,12 @@ Deno.serve(async (req: Request) => {
       .from("employees")
       .upsert(
         {
-          id: userId,
+          auth_user_id: userId,
           email,
           role_id: roleId,
           updated_at: new Date().toISOString(),
         },
-        { onConflict: "id" },
+        { onConflict: "email" },
       )
       .select("id, email, role_id")
       .maybeSingle();

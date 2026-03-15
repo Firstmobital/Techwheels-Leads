@@ -6,7 +6,7 @@ const OPERATIONAL_ENTITY_TABLES = {
   ShowroomWalkin: 'showroom_walkins',
   IVRLead: 'ivr_leads',
   VNAStock: 'vna_stock',
-  MatchedStockCustomer: 'matched_stock_customer',
+  MatchedStockCustomer: 'matched_stock_customers',
   SentMessage: 'sent_messages',
   Template: 'templates',
   Employee: 'employees',
