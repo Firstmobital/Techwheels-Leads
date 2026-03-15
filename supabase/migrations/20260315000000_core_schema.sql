@@ -96,8 +96,7 @@ SELECT
     sw.opty_status,
     sw.opty_submitted_at,
     true AS greenform_requested,
-    sw.created_at,
-    sw.created_at AS updated_at
+    sw.created_at
 FROM public.showroom_walkins sw
 LEFT JOIN public.car c ON c.id = sw.car_id
 WHERE (sw.opty_id IS NULL OR btrim(sw.opty_id) = '')
@@ -118,8 +117,7 @@ SELECT
     ivr.opty_status,
     ivr.opty_submitted_at,
     true AS greenform_requested,
-    ivr.created_at,
-    ivr.created_at AS updated_at
+    ivr.created_at
 FROM public.ivr_leads ivr
 WHERE (ivr.opty_id IS NULL OR btrim(ivr.opty_id) = '')
   AND lower(btrim(COALESCE(ivr.opty_status, ''))) != 'submitted'
@@ -139,8 +137,7 @@ SELECT
     al.opty_status,
     al.opty_submitted_at,
     al.greenform_requested,
-    al.created_at,
-    al.updated_at
+    al.created_at
 FROM public.ai_leads al
 WHERE al.greenform_requested = true
   AND (al.opty_id IS NULL OR btrim(al.opty_id) = '')
