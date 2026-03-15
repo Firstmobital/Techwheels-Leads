@@ -1,10 +1,9 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 // ---------------------------------------------------------------------------
-// MIGRATED: inviteUser
-// Previously wrote to the retired `profiles` table.
-// Now provisions auth.users and inserts into the operational `employees` table.
-// Authorization check reads from `employees` + `roles` (no longer `profiles`).
+// inviteUser
+// provisions auth.users and inserts into the operational `employees` table.
+// Authorization check reads from `employees` + `roles`.
 // ---------------------------------------------------------------------------
 
 function requiredEnv(name: string): string {
@@ -53,18 +52,16 @@ const ALLOWED_ROLES = new Set(["sales", "user", "admin"]);
 
 /**
  * Authorize the caller by checking the employees table joint with roles.
- * Accepts service-role bypass for internal calls.
  */
 async function isAuthorizedRequest(req: Request): Promise<boolean> {
   const authHeader = req.headers.get("Authorization") ?? req.headers.get("authorization");
   const token = getBearerToken(authHeader);
   if (!token) return false;
 
-  // Service-role bypass for server-to-server calls.
+  // Service-role bypass
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (serviceRoleKey && token === serviceRoleKey) return true;
 
-  // Validate JWT and look up caller in employees + roles.
   const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token);
   if (userError || !userData?.user) return false;
 
@@ -82,8 +79,7 @@ async function isAuthorizedRequest(req: Request): Promise<boolean> {
 }
 
 /**
- * Resolve the UUID of the role given a role code string (e.g., "user", "admin").
- * Returns null if the role does not exist in the roles table.
+ * Resolve the ID of the role given a role code string (e.g., "user", "admin").
  */
 async function resolveRoleId(roleCode: string): Promise<any | null> {
   const { data, error } = await supabaseAdmin
@@ -108,38 +104,32 @@ Deno.serve(async (req: Request) => {
   try {
     const isAuthorized = await isAuthorizedRequest(req);
     if (!isAuthorized) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        {
-          status: 401,
-          headers: {
-            "Content-Type": "application/json",
-            ...CORS_HEADERS,
-          },
-        },
-      );
+      return jsonResponse({ error: "Unauthorized" }, { status: 401 });
     }
 
     const body = await req.json().catch(() => ({}));
-    const emailRaw = (body?.email ?? "").toString();
-    const roleRaw = (body?.role ?? "user").toString();
+    const emailRaw = (body?.email ?? "").toString().trim().toLowerCase();
+    const roleRaw = (body?.role ?? "user").toString().trim();
+    const firstName = (body?.first_name ?? "").toString().trim();
+    const lastName = (body?.last_name ?? "").toString().trim();
 
-    const email = emailRaw.trim().toLowerCase();
-    const roleCode = roleRaw.trim();
-
-    if (!email || !isValidEmail(email)) {
+    if (!emailRaw || !isValidEmail(emailRaw)) {
       return jsonResponse({ error: "Invalid email" }, { status: 400 });
     }
 
-    if (!roleCode || !ALLOWED_ROLES.has(roleCode)) {
+    if (!roleRaw || !ALLOWED_ROLES.has(roleRaw)) {
       return jsonResponse({ error: "Invalid role" }, { status: 400 });
     }
 
-    // Resolve role UUID from the roles table.
-    const roleId = await resolveRoleId(roleCode);
+    if (!firstName) {
+      return jsonResponse({ error: "first_name is required" }, { status: 400 });
+    }
+
+    // Resolve role ID from the roles table.
+    const roleId = await resolveRoleId(roleRaw);
     if (!roleId) {
       return jsonResponse(
-        { error: `Role '${roleCode}' not found in the roles table. Ensure it is seeded.` },
+        { error: `Role '${roleRaw}' not found in the roles table.` },
         { status: 422 },
       );
     }
@@ -148,7 +138,7 @@ Deno.serve(async (req: Request) => {
     const { data: existingEmployee, error: existingEmpError } = await supabaseAdmin
       .from("employees")
       .select("id")
-      .eq("email", email)
+      .eq("email", emailRaw)
       .maybeSingle();
 
     if (existingEmpError) {
@@ -159,38 +149,38 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: "User with this email already exists" }, { status: 409 });
     }
 
-    // Create auth user (no password — user must accept email invite or set via magic link).
+    // Create auth user
     const { data: created, error: createError } = await supabaseAdmin.auth.admin.createUser({
-      email,
+      email: emailRaw,
       email_confirm: true,
     });
 
     if (createError || !created?.user) {
       const message = createError?.message ?? "Failed to create user";
-      const status = /already\s*(registered|exists)|email\s*already\s*in\s*use/i.test(message) ? 409 : 500;
+      const status = /already/i.test(message) ? 409 : 500;
       return jsonResponse({ error: message }, { status });
     }
 
     const userId = created.user.id;
 
-    // Provision the employee record in the operational DB.
-    // email is the minimum required field; first_name/last_name can be updated later.
+    // Provision the employee record.
     const { data: employeeRow, error: upsertEmpError } = await supabaseAdmin
       .from("employees")
       .upsert(
         {
           auth_user_id: userId,
-          email,
+          email: emailRaw,
+          first_name: firstName,
+          last_name: lastName || null,
           role_id: roleId,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "email" },
       )
-      .select("id, email, role_id")
+      .select("id, email, first_name, last_name, role_id")
       .maybeSingle();
 
     if (upsertEmpError) {
-      // Best-effort rollback: remove the auth user if employee provisioning fails.
       await supabaseAdmin.auth.admin.deleteUser(userId).catch(() => {});
       return jsonResponse({ error: upsertEmpError.message }, { status: 500 });
     }

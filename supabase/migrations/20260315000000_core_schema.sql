@@ -5,8 +5,12 @@
 -- new architecture.
 -- 
 -- The following entities are treated as external truth (already exist in DB):
---   - employees, roles, departments, locations, showroom_walkins, 
---     ivr_leads, car, vna_stock (view), matched_stock_customers (view)
+--   - employees (id: bigint, auth_user_id: uuid, first_name: not null)
+--   - roles, departments, locations
+--   - showroom_walkins (uses car_id, no updated_at)
+--   - ivr_leads (no updated_at)
+--   - car
+--   - vna_stock (view), matched_stock_customers (view)
 -- ==============================================================================
 
 -- Enable UUID extension if not present
@@ -28,7 +32,7 @@ CREATE TABLE IF NOT EXISTS public.ai_leads (
     remarks TEXT,
     greenform_requested BOOLEAN DEFAULT false,
     opty_id TEXT,
-    opty_status TEXT,
+    opty_status TEXT DEFAULT 'pending',
     opty_submitted_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -39,31 +43,33 @@ CREATE UNIQUE INDEX IF NOT EXISTS ai_leads_source_conversation_id_key
   ON public.ai_leads (source_conversation_id)
   WHERE source_conversation_id IS NOT NULL;
 
--- Sent Messages Log: Tracking communications sent to leads
-CREATE TABLE IF NOT EXISTS public.sent_messages (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    lead_id TEXT,  -- Supports composite IDs (e.g., ai:uuid)
-    tab TEXT,
-    day_step INTEGER DEFAULT 1,
-    ca_name TEXT,
-    sent_by TEXT,
-    status TEXT DEFAULT 'sent',
-    sent_at TIMESTAMPTZ DEFAULT NOW(),
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+-- Messaging Templates
+CREATE TABLE IF NOT EXISTS public.templates (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name text NOT NULL,
+    category text NULL,
+    channel text NOT NULL DEFAULT 'whatsapp',
+    language text NOT NULL DEFAULT 'en',
+    template_text text NOT NULL,
+    is_active boolean NOT NULL DEFAULT true,
+    created_by bigint NULL REFERENCES public.employees(id) ON DELETE SET NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
 );
 
--- Messaging Templates: Standard responses across different tabs
-CREATE TABLE IF NOT EXISTS public.templates (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    tab TEXT,
-    name TEXT,
-    message TEXT,
-    day_step INTEGER NOT NULL DEFAULT 1,
-    ppl TEXT,
-    attachments TEXT[] DEFAULT '{}',
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+-- Sent Messages Log
+CREATE TABLE IF NOT EXISTS public.sent_messages (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    customer_name text NULL,
+    mobile_number text NOT NULL,
+    message_text text NULL,
+    template_id bigint NULL REFERENCES public.templates(id) ON DELETE SET NULL,
+    lead_source text NULL CHECK (lead_source IN ('walkin', 'ivr', 'ai')),
+    source_record_id uuid NULL,
+    sent_by_employee_id bigint NULL REFERENCES public.employees(id) ON DELETE SET NULL,
+    sent_via text NOT NULL DEFAULT 'whatsapp_link',
+    status text NOT NULL DEFAULT 'sent',
+    created_at timestamptz NOT NULL DEFAULT now()
 );
 
 -- Enable RLS
@@ -75,8 +81,51 @@ ALTER TABLE public.templates ENABLE ROW LEVEL SECURITY;
 -- 2. VIEWS (Unified Reporting Layer)
 -- ==============================================================================
 
--- Pending Greenforms: e.g., AI Leads requesting a greenform but not yet submitted
+-- Pending Greenforms: Unifies Showroom Walk-ins, IVR, and AI Leads
 CREATE OR REPLACE VIEW public.greenform_pending_leads AS
+SELECT
+    'walkin'::text AS source_type,
+    sw.id::text AS source_record_id,
+    ('walkin:' || sw.id::text) AS id,
+    sw.customer_name,
+    sw.mobile_number,
+    c.name AS model_name,
+    sw.salesperson_id,
+    sw.location_id,
+    sw.opty_id,
+    sw.opty_status,
+    sw.opty_submitted_at,
+    true AS greenform_requested,
+    sw.created_at,
+    sw.created_at AS updated_at
+FROM public.showroom_walkins sw
+LEFT JOIN public.car c ON c.id = sw.car_id
+WHERE (sw.opty_id IS NULL OR btrim(sw.opty_id) = '')
+  AND lower(btrim(COALESCE(sw.opty_status, ''))) != 'submitted'
+
+UNION ALL
+
+SELECT
+    'ivr'::text AS source_type,
+    ivr.id::text AS source_record_id,
+    ('ivr:' || ivr.id::text) AS id,
+    ivr.customer_name,
+    ivr.mobile_number,
+    ivr.model_name,
+    ivr.salesperson_id,
+    ivr.location_id,
+    ivr.opty_id,
+    ivr.opty_status,
+    ivr.opty_submitted_at,
+    true AS greenform_requested,
+    ivr.created_at,
+    ivr.created_at AS updated_at
+FROM public.ivr_leads ivr
+WHERE (ivr.opty_id IS NULL OR btrim(ivr.opty_id) = '')
+  AND lower(btrim(COALESCE(ivr.opty_status, ''))) != 'submitted'
+
+UNION ALL
+
 SELECT
     'ai'::text AS source_type,
     al.id::text AS source_record_id,
@@ -98,7 +147,6 @@ WHERE al.greenform_requested = true
   AND lower(btrim(COALESCE(al.opty_status, ''))) != 'submitted';
 
 -- Submitted Greenforms: Unified view across Walk-ins, IVR, and AI pipelines
--- References existing tables: employees, showroom_walkins, ivr_leads
 CREATE OR REPLACE VIEW public.greenform_submitted_leads AS
 WITH employee_names AS (
   SELECT
@@ -114,9 +162,9 @@ submitted_showroom_walkins AS (
     sw.customer_name,
     sw.mobile_number,
     sw.mobile_number AS phone_number,
-    sw.model_name,
-    sw.model_name AS car_model,
-    sw.model_name AS ppl,
+    c.name AS model_name,
+    c.name AS car_model,
+    c.name AS ppl,
     sw.salesperson_id,
     sw.salesperson_id::text AS assigned_to,
     sw.location_id,
@@ -127,10 +175,11 @@ submitted_showroom_walkins AS (
     sw.opty_submitted_at,
     sw.created_at,
     sw.created_at AS created_date,
-    sw.updated_at,
+    true AS greenform_requested,
     'walkin'::text AS lead_source,
     'walkin'::text AS source_pv
   FROM public.showroom_walkins sw
+  LEFT JOIN public.car c ON c.id = sw.car_id
   LEFT JOIN employee_names en ON en.employee_id = sw.salesperson_id
   WHERE NULLIF(btrim(sw.opty_id), '') IS NOT NULL
     AND lower(btrim(sw.opty_status)) = 'submitted'
@@ -156,7 +205,7 @@ submitted_ivr_leads AS (
     ivr.opty_submitted_at,
     ivr.created_at,
     ivr.created_at AS created_date,
-    ivr.updated_at,
+    true AS greenform_requested,
     'ivr'::text AS lead_source,
     'ivr'::text AS source_pv
   FROM public.ivr_leads ivr
@@ -185,7 +234,7 @@ submitted_ai_leads AS (
     ai.opty_submitted_at,
     ai.created_at,
     ai.created_at AS created_date,
-    ai.updated_at,
+    ai.greenform_requested,
     'ai'::text AS lead_source,
     'ai'::text AS source_pv
   FROM public.ai_leads ai
