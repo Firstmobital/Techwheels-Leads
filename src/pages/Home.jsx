@@ -79,13 +79,23 @@ export default function Home() {
 
   // Filter leads: admin sees all; non-admin visibility depends on tab-specific ownership rules.
   const filterLeads = useCallback((leads, tab) => {
+    const requiresSalesTeam = tab === 'vana' || tab === 'matchtalk';
+    const leadsWithValidSalesTeam = requiresSalesTeam
+      ? leads.filter((lead) => {
+          const salesTeam = lead?.sales_team;
+          if (salesTeam === null || salesTeam === undefined) return false;
+          if (typeof salesTeam === 'string' && salesTeam.trim() === '') return false;
+          return true;
+        })
+      : leads;
+
     if (!currentUser) return [];
-    if (isAdmin) return leads;
+    if (isAdmin) return leadsWithValidSalesTeam;
     
     const currentEmployeeId = currentUser.employeeId ?? null;
     const currentUserFullName = currentUser.fullName ?? '';
     
-    return leads.filter(l => {
+    return leadsWithValidSalesTeam.filter(l => {
       const leadData = l;
       
       // Try salesperson_id (BigInt) first
@@ -94,8 +104,10 @@ export default function Home() {
         return String(leadSalespersonId) === String(currentEmployeeId);
       }
 
-      // Fallback to name-based matching for VNA/Match Stock if salesperson_id is missing
-      const leadCaName = leadData.ca_name ?? leadData.employee_full_name ?? '';
+      // Fallback to name-based matching when salesperson_id is missing
+      const leadCaName = tab === 'vana' || tab === 'matchtalk'
+        ? (leadData.sales_team ?? leadData.ca_name ?? leadData.employee_full_name ?? '')
+        : (leadData.ca_name ?? leadData.employee_full_name ?? '');
       if (leadCaName && currentUserFullName) {
         return leadCaName.toLowerCase() === currentUserFullName.toLowerCase();
       }

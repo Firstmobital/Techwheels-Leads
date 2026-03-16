@@ -95,13 +95,20 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
     return leads.filter(lead => {
       const leadData = lead;
       const resolvedPhone = leadData.mobile_number || leadData.phone_number || '';
+      const resolvedProductLine = leadData.product_line || '';
+      const resolvedSalesTeam = leadData.sales_team || '';
+      const resolvedChassisNo = leadData.chassis_no || '';
+      const normalizedSearch = search.toLowerCase();
       const resolvedVnaModel = leadData.car_model || leadData.ppl || '';
       const resolvedVnaAllocation = String(leadData.allocation_status || leadData.status || '').trim().toLowerCase();
       const resolvedGreenFormModel = leadData.model_name || leadData.car_model || leadData.ppl;
       const resolvedGreenFormSource = leadData.source_type || leadData.source_pv || '';
       const matchSearch = !search || 
-        leadData.customer_name?.toLowerCase().includes(search.toLowerCase()) ||
-        String(resolvedPhone).includes(search);
+        leadData.customer_name?.toLowerCase().includes(normalizedSearch) ||
+        String(resolvedPhone).includes(search) ||
+        String(resolvedChassisNo).toLowerCase().includes(normalizedSearch) ||
+        String(resolvedProductLine).toLowerCase().includes(normalizedSearch) ||
+        String(resolvedSalesTeam).toLowerCase().includes(normalizedSearch);
       const matchCar = carFilter === 'all' || (tab === 'matchtalk'
         ? leadData.ppl === carFilter
         : tab === 'vana'

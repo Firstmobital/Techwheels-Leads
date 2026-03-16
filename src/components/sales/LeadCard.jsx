@@ -205,6 +205,8 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
               {tab === 'vana' && (
                 <div className="mt-2 space-y-1 w-full">
                   {[
+                    ['Model', typeof normalizedLead.product_line === 'string' ? (normalizedLead.product_line.trim() || '-') : (normalizedLead.product_line ?? '-')],
+                    ['Sales Person', typeof normalizedLead.sales_team === 'string' ? (normalizedLead.sales_team.trim() || '-') : (normalizedLead.sales_team ?? '-')],
                     ['Booking ID', normalizedLead.booking_id],
                     ['Chassis No', normalizedLead.chassis_no],
                     ['PPL', normalizedLead.ppl],
@@ -229,6 +231,8 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
             {tab === 'matchtalk' && (
                 <div className="mt-2 space-y-1 w-full">
                   {[
+                    ['Model', typeof normalizedLead.product_line === 'string' ? (normalizedLead.product_line.trim() || '-') : (normalizedLead.product_line ?? '-')],
+                    ['Sales Person', typeof normalizedLead.sales_team === 'string' ? (normalizedLead.sales_team.trim() || '-') : (normalizedLead.sales_team ?? '-')],
                     ['Chassis No', normalizedLead.chassis_no],
                     ['PPL', normalizedLead.ppl],
                     ['PL', normalizedLead.pl],
