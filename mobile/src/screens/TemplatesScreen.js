@@ -4,6 +4,9 @@ import { supabase } from "../lib/supabase";
 
 const EMPTY_FORM = {
   name: "",
+  source: "ai",
+  model_name: "",
+  step: "",
   category: "general",
   channel: "whatsapp",
   language: "en",
@@ -11,13 +14,12 @@ const EMPTY_FORM = {
   is_active: true,
 };
 
-const CHANNEL_OPTIONS = ["whatsapp", "sms", "email"];
-const LANGUAGE_OPTIONS = ["en", "hi"];
+const SOURCE_OPTIONS = ["ai", "vna", "match"];
+const STEP_OPTIONS = ["M1", "M2", "M3", "M4"];
 
 export default function TemplatesScreen() {
   const [templates, setTemplates] = useState([]);
-  const [filterCategory, setFilterCategory] = useState("all");
-  const [filterLanguage, setFilterLanguage] = useState("all");
+  const [filterSource, setFilterSource] = useState("all");
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [showForm, setShowForm] = useState(false);
@@ -41,33 +43,12 @@ export default function TemplatesScreen() {
     loadTemplates();
   }, []);
 
-  const categoryOptions = useMemo(() => {
-    const categories = new Set();
-    templates.forEach((template) => {
-      const category = String(template.category || "").trim();
-      if (category) categories.add(category);
-    });
-    return ["all", ...Array.from(categories).sort((a, b) => a.localeCompare(b))];
-  }, [templates]);
-
-  const languageOptions = useMemo(() => {
-    const languages = new Set(["en"]);
-    templates.forEach((template) => {
-      const language = String(template.language || "").trim();
-      if (language) languages.add(language);
-    });
-    return ["all", ...Array.from(languages).sort((a, b) => a.localeCompare(b))];
-  }, [templates]);
-
   const filtered = useMemo(() => {
     return templates.filter((template) => {
-      const category = String(template.category || "").trim();
-      const language = String(template.language || "").trim();
-      const matchCategory = filterCategory === "all" || category === filterCategory;
-      const matchLanguage = filterLanguage === "all" || language === filterLanguage;
-      return matchCategory && matchLanguage;
+      const source = String(template.source || "").trim().toLowerCase();
+      return filterSource === "all" || source === filterSource;
     });
-  }, [templates, filterCategory, filterLanguage]);
+  }, [templates, filterSource]);
 
   const resetForm = () => {
     setForm(EMPTY_FORM);
@@ -76,13 +57,16 @@ export default function TemplatesScreen() {
   };
 
   const saveTemplate = async () => {
-    if (!form.name.trim() || !form.template_text.trim()) {
-      Alert.alert("Required", "Template name and template text are required.");
+    if (!form.name.trim() || !form.source.trim() || !form.template_text.trim()) {
+      Alert.alert("Required", "Template name, source, and template text are required.");
       return;
     }
 
     const payload = {
       name: form.name.trim(),
+      source: form.source.trim() || null,
+      model_name: form.model_name.trim() || null,
+      step: form.step.trim() || null,
       category: form.category.trim() || "general",
       channel: form.channel.trim() || "whatsapp",
       language: form.language.trim() || "en",
@@ -114,6 +98,9 @@ export default function TemplatesScreen() {
     setEditingId(template.id);
     setForm({
       name: template.name || "",
+      source: String(template.source || "").trim(),
+      model_name: template.model_name || "",
+      step: template.step || "",
       category: template.category || "general",
       channel: template.channel || "whatsapp",
       language: template.language || "en",
@@ -154,28 +141,14 @@ export default function TemplatesScreen() {
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-          {categoryOptions.map((category) => (
+          {["all", ...SOURCE_OPTIONS].map((source) => (
             <Pressable
-              key={`category-${category}`}
-              style={[styles.filterPill, filterCategory === category && styles.filterPillActive]}
-              onPress={() => setFilterCategory(category)}
+              key={`source-filter-${source}`}
+              style={[styles.filterPill, filterSource === source && styles.filterPillActive]}
+              onPress={() => setFilterSource(source)}
             >
-              <Text style={[styles.filterPillText, filterCategory === category && styles.filterPillTextActive]}>
-                {category === "all" ? "all categories" : category}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-          {languageOptions.map((language) => (
-            <Pressable
-              key={`language-${language}`}
-              style={[styles.filterPill, filterLanguage === language && styles.filterPillActive]}
-              onPress={() => setFilterLanguage(language)}
-            >
-              <Text style={[styles.filterPillText, filterLanguage === language && styles.filterPillTextActive]}>
-                {language === "all" ? "all languages" : language}
+              <Text style={[styles.filterPillText, filterSource === source && styles.filterPillTextActive]}>
+                {source === "all" ? "All" : source.toUpperCase()}
               </Text>
             </Pressable>
           ))}
@@ -194,34 +167,53 @@ export default function TemplatesScreen() {
 
             <TextInput
               style={styles.input}
-              placeholder="Category"
-              value={form.category}
-              onChangeText={(value) => setForm((prev) => ({ ...prev, category: value }))}
+              placeholder="Source"
+              value={form.source}
+              editable={false}
             />
 
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-              {CHANNEL_OPTIONS.map((channel) => (
+              {SOURCE_OPTIONS.map((source) => (
                 <Pressable
-                  key={`channel-${channel}`}
-                  style={[styles.filterPill, form.channel === channel && styles.filterPillActive]}
-                  onPress={() => setForm((prev) => ({ ...prev, channel }))}
+                  key={`source-${source}`}
+                  style={[styles.filterPill, form.source === source && styles.filterPillActive]}
+                  onPress={() => setForm((prev) => ({ ...prev, source }))}
                 >
-                  <Text style={[styles.filterPillText, form.channel === channel && styles.filterPillTextActive]}>{channel}</Text>
+                  <Text style={[styles.filterPillText, form.source === source && styles.filterPillTextActive]}>{source}</Text>
                 </Pressable>
               ))}
             </ScrollView>
 
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-              {[...new Set([...LANGUAGE_OPTIONS, ...languageOptions.filter((v) => v !== "all")])].map((language) => (
-                <Pressable
-                  key={`language-form-${language}`}
-                  style={[styles.filterPill, form.language === language && styles.filterPillActive]}
-                  onPress={() => setForm((prev) => ({ ...prev, language }))}
-                >
-                  <Text style={[styles.filterPillText, form.language === language && styles.filterPillTextActive]}>{language}</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
+            {SOURCE_OPTIONS.includes(form.source) ? (
+              <>
+                <TextInput
+                  style={styles.input}
+                  placeholder={form.source === "ai" ? "Model name" : "Model name (optional)"}
+                  value={form.model_name}
+                  onChangeText={(value) => setForm((prev) => ({ ...prev, model_name: value }))}
+                />
+
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+                  <Pressable
+                    style={[styles.filterPill, form.step === "" && styles.filterPillActive]}
+                    onPress={() => setForm((prev) => ({ ...prev, step: "" }))}
+                  >
+                    <Text style={[styles.filterPillText, form.step === "" && styles.filterPillTextActive]}>
+                      {form.source === "ai" ? "Select step" : "No step (optional)"}
+                    </Text>
+                  </Pressable>
+                  {STEP_OPTIONS.map((step) => (
+                    <Pressable
+                      key={`step-${step}`}
+                      style={[styles.filterPill, form.step === step && styles.filterPillActive]}
+                      onPress={() => setForm((prev) => ({ ...prev, step }))}
+                    >
+                      <Text style={[styles.filterPillText, form.step === step && styles.filterPillTextActive]}>{step}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </>
+            ) : null}
 
             <Pressable
               style={[styles.filterPill, form.is_active && styles.filterPillActive]}
@@ -271,7 +263,7 @@ export default function TemplatesScreen() {
             </View>
 
             <Text style={styles.meta}>
-              Category: {template.category || "-"} | Channel: {template.channel || "-"} | Language: {template.language || "-"}
+              Source: {template.source ? String(template.source).toUpperCase() : "-"} | Model: {template.model_name || "-"} | Step: {template.step || "-"}
             </Text>
             <Text style={styles.meta}>Status: {template.is_active === false ? "inactive" : "active"}</Text>
             <Text style={styles.messagePreview}>{template.template_text || ""}</Text>

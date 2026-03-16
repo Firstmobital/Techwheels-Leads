@@ -9,6 +9,9 @@ import { cn } from '@/lib/utils';
 
 const EMPTY_FORM = {
   name: '',
+  source: 'ai',
+  model_name: '',
+  step: '',
   category: 'general',
   channel: 'whatsapp',
   language: 'en',
@@ -16,11 +19,14 @@ const EMPTY_FORM = {
   is_active: true,
 };
 
-const CHANNELS = ['whatsapp', 'sms', 'email'];
-const LANGUAGES = ['en', 'hi'];
+const SOURCE_OPTIONS = ['ai', 'vna', 'match'];
+const STEP_OPTIONS = ['M1', 'M2', 'M3', 'M4'];
 
 const normalizeTemplatePayload = (form) => ({
   name: String(form.name || '').trim(),
+  source: String(form.source || '').trim() || null,
+  model_name: String(form.model_name || '').trim() || null,
+  step: String(form.step || '').trim() || null,
   category: String(form.category || 'general').trim() || 'general',
   channel: String(form.channel || 'whatsapp').trim() || 'whatsapp',
   language: String(form.language || 'en').trim() || 'en',
@@ -30,7 +36,7 @@ const normalizeTemplatePayload = (form) => ({
 
 export default function TemplatesSection() {
   const queryClient = useQueryClient();
-  const [filterCategory, setFilterCategory] = useState('all');
+  const [filterSource, setFilterSource] = useState('all');
   const [editingId, setEditingId] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -70,6 +76,9 @@ export default function TemplatesSection() {
   const handleEdit = (template) => {
     setForm({
       name: template.name || '',
+      source: String(template.source || '').trim(),
+      model_name: template.model_name || '',
+      step: template.step || '',
       category: template.category || 'general',
       channel: template.channel || 'whatsapp',
       language: template.language || 'en',
@@ -82,7 +91,7 @@ export default function TemplatesSection() {
 
   const handleSubmit = () => {
     const payload = normalizeTemplatePayload(form);
-    if (!payload.name || !payload.template_text) return;
+    if (!payload.name || !payload.source || !payload.template_text) return;
 
     if (editingId) {
       updateMutation.mutate({ id: editingId, payload });
@@ -92,26 +101,19 @@ export default function TemplatesSection() {
     createMutation.mutate(payload);
   };
 
-  const categories = useMemo(() => {
-    const distinct = new Set();
-    templates.forEach((template) => {
-      const category = String(template.category || '').trim();
-      if (category) distinct.add(category);
-    });
-    return ['all', ...Array.from(distinct).sort((a, b) => a.localeCompare(b))];
-  }, [templates]);
+  const sourceFilters = ['all', ...SOURCE_OPTIONS];
 
   const filteredTemplates = useMemo(() => {
-    const rows = filterCategory === 'all'
+    const rows = filterSource === 'all'
       ? templates
-      : templates.filter((template) => String(template.category || '').trim() === filterCategory);
+      : templates.filter((template) => String(template.source || '').trim().toLowerCase() === filterSource);
 
     return [...rows].sort((a, b) => {
       const aTime = new Date(a.updated_at || a.created_at || 0).getTime();
       const bTime = new Date(b.updated_at || b.created_at || 0).getTime();
       return bTime - aTime;
     });
-  }, [templates, filterCategory]);
+  }, [templates, filterSource]);
 
   return (
     <div className="flex-1 overflow-y-auto px-4 pb-24 pt-3 space-y-4 dark:bg-gray-900">
@@ -135,18 +137,18 @@ export default function TemplatesSection() {
         </div>
 
         <div className="flex gap-2 px-4 py-2 overflow-x-auto border-b border-gray-50 dark:border-gray-700">
-          {categories.map((category) => (
+          {sourceFilters.map((source) => (
             <button
-              key={category}
-              onClick={() => setFilterCategory(category)}
+              key={source}
+              onClick={() => setFilterSource(source)}
               className={cn(
                 'text-xs font-medium px-3 py-1 rounded-full whitespace-nowrap border transition-all',
-                filterCategory === category
+                filterSource === source
                   ? 'bg-gray-900 text-white border-gray-900'
                   : 'bg-white text-gray-500 border-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600'
               )}
             >
-              {category === 'all' ? 'All Categories' : category}
+              {source === 'all' ? 'All' : source.toUpperCase()}
             </button>
           ))}
         </div>
@@ -167,32 +169,37 @@ export default function TemplatesSection() {
               />
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                <Input
-                  placeholder="Category"
-                  value={form.category}
-                  onChange={(e) => setForm({ ...form, category: e.target.value })}
-                  className="h-9 text-sm rounded-xl"
-                />
-                <Input
-                  placeholder="Channel"
-                  value={form.channel}
-                  onChange={(e) => setForm({ ...form, channel: e.target.value })}
-                  className="h-9 text-sm rounded-xl"
-                  list="template-channel-options"
-                />
-                <Input
-                  placeholder="Language"
-                  value={form.language}
-                  onChange={(e) => setForm({ ...form, language: e.target.value })}
-                  className="h-9 text-sm rounded-xl"
-                  list="template-language-options"
-                />
-                <datalist id="template-channel-options">
-                  {CHANNELS.map((channel) => <option key={channel} value={channel} />)}
-                </datalist>
-                <datalist id="template-language-options">
-                  {LANGUAGES.map((language) => <option key={language} value={language} />)}
-                </datalist>
+                <select
+                  value={form.source}
+                  onChange={(e) => setForm({ ...form, source: e.target.value })}
+                  className="h-9 text-sm rounded-xl border border-input bg-background px-3"
+                >
+                  <option value="">Select source</option>
+                  {SOURCE_OPTIONS.map((source) => (
+                    <option key={source} value={source}>{source}</option>
+                  ))}
+                </select>
+
+                {SOURCE_OPTIONS.includes(form.source) && (
+                  <>
+                    <Input
+                      placeholder={form.source === 'ai' ? 'Model name' : 'Model name (optional)'}
+                      value={form.model_name}
+                      onChange={(e) => setForm({ ...form, model_name: e.target.value })}
+                      className="h-9 text-sm rounded-xl"
+                    />
+                    <select
+                      value={form.step}
+                      onChange={(e) => setForm({ ...form, step: e.target.value })}
+                      className="h-9 text-sm rounded-xl border border-input bg-background px-3"
+                    >
+                      <option value="">{form.source === 'ai' ? 'Select step' : 'Select step (optional)'}</option>
+                      {STEP_OPTIONS.map((step) => (
+                        <option key={step} value={step}>{step}</option>
+                      ))}
+                    </select>
+                  </>
+                )}
               </div>
 
               <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
@@ -213,7 +220,7 @@ export default function TemplatesSection() {
 
               <Button
                 onClick={handleSubmit}
-                disabled={!form.name || !form.template_text || createMutation.isPending || updateMutation.isPending}
+                disabled={!form.name || !form.source || !form.template_text || createMutation.isPending || updateMutation.isPending}
                 className="w-full h-9 rounded-xl bg-gray-900 hover:bg-gray-700 text-sm gap-1.5"
               >
                 <Check className="w-4 h-4" /> {editingId ? 'Save Changes' : 'Create Template'}
@@ -231,9 +238,9 @@ export default function TemplatesSection() {
                     <div className="space-y-1 min-w-0">
                       <p className="font-semibold text-gray-800 dark:text-white text-sm truncate">{template.name}</p>
                       <div className="flex flex-wrap gap-1">
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{template.category || 'general'}</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">{template.channel || 'whatsapp'}</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{template.language || 'en'}</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{template.source ? String(template.source).toUpperCase() : '-'}</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">{template.model_name || 'all models'}</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{template.step || 'any step'}</span>
                         <span className={cn(
                           'text-[10px] px-2 py-0.5 rounded-full',
                           template.is_active === false ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
