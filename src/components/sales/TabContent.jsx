@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Search, RefreshCw, Inbox } from 'lucide-react';
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem } from "@/components/ui/select";
+import { SelectItem } from "@/components/ui/select";
 import MobileSelect from '@/components/shared/MobileSelect';
 import { getSentMessageKeyForLead } from '@/utils/sentMessageUtils';
 
@@ -99,7 +99,7 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
       const resolvedSalesTeam = leadData.sales_team || '';
       const resolvedChassisNo = leadData.chassis_no || '';
       const normalizedSearch = search.toLowerCase();
-      const resolvedStockModel = leadData.product_line || leadData.car_model || leadData.ppl || '';
+      const resolvedVnaModel = leadData.car_model || leadData.ppl || '';
       const resolvedVnaAllocation = String(leadData.allocation_status || leadData.status || '').trim().toLowerCase();
       const resolvedGreenFormModel = leadData.model_name || leadData.car_model || leadData.ppl;
       const resolvedGreenFormSource = leadData.source_type || leadData.source_pv || '';
@@ -110,12 +110,12 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
         String(resolvedProductLine).toLowerCase().includes(normalizedSearch) ||
         String(resolvedSalesTeam).toLowerCase().includes(normalizedSearch);
       const matchCar = carFilter === 'all' || (tab === 'matchtalk'
-        ? resolvedStockModel === carFilter
-        : tab === 'vana'
-          ? resolvedStockModel === carFilter
-        : tab === 'greenforms'
-          ? resolvedGreenFormModel === carFilter
-          : leadData.car_model === carFilter);
+          ? (leadData.product_line ? leadData.product_line === carFilter : leadData.ppl === carFilter)
+          : tab === 'vana'
+            ? (leadData.product_line ? leadData.product_line === carFilter : resolvedVnaModel === carFilter)
+          : tab === 'greenforms'
+            ? resolvedGreenFormModel === carFilter
+            : leadData.car_model === carFilter);
       const leadSentKey = getSentMessageKeyForLead(leadData, tab);
       const isLeadSent = leadSentKey ? sentMessageKeys.has(leadSentKey) : false;
       const matchSent = showSent || !isLeadSent;
