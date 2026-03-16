@@ -146,6 +146,7 @@ export const AuthProvider = ({ children }) => {
         return fallbackUser;
       } finally {
         hydrationInFlightRef.current.delete(authUserId);
+
         if (latestRequestedAuthUserIdRef.current === authUserId) {
           setIsLoadingAuth(false);
         }
@@ -162,7 +163,6 @@ export const AuthProvider = ({ children }) => {
       setAuthError(null);
 
       const { data, error } = await supabase.auth.getSession();
-
       if (error) throw error;
 
       const session = data?.session;
@@ -175,6 +175,7 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       logAuthError('Session check failed:', error);
       setAuthError(null);
+    } finally {
       setIsLoadingAuth(false);
     }
   }, [hydrateUser, logAuthError, setUnauthenticatedState]);
@@ -184,9 +185,13 @@ export const AuthProvider = ({ children }) => {
   }, [user]);
 
   useEffect(() => {
+    let isMounted = true;
+
     checkSession();
 
     const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!isMounted) return;
+
       if (!session?.user) {
         setUnauthenticatedState();
         return;
@@ -202,10 +207,18 @@ export const AuthProvider = ({ children }) => {
       }
 
       setAuthError(null);
-      await hydrateUser(session.user);
+
+      try {
+        await hydrateUser(session.user);
+      } finally {
+        if (isMounted && shouldShowLoading) {
+          setIsLoadingAuth(false);
+        }
+      }
     });
 
     return () => {
+      isMounted = false;
       data?.subscription?.unsubscribe();
     };
   }, [checkSession, hydrateUser, setUnauthenticatedState]);
@@ -259,6 +272,7 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
     setIsAuthenticated(false);
     setAuthError({ type: 'auth_required', message: 'Authentication required' });
+    setIsLoadingAuth(false);
 
     if (shouldRedirect && typeof window !== 'undefined') {
       navigateToLogin();
