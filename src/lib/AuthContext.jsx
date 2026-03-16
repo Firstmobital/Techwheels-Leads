@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/api/supabaseClient';
 
 const AUTH_REQUEST_TIMEOUT_MS = 60000;
@@ -16,6 +16,11 @@ const withTimeout = async (promise, timeoutMs = AUTH_REQUEST_TIMEOUT_MS, errorMe
   } finally {
     clearTimeout(timeoutId);
   }
+};
+
+const isTimeoutError = (error) => {
+  const message = String(error?.message || '').trim().toLowerCase();
+  return message.includes('timed out');
 };
 
 const defaultAuthContextValue = {
@@ -68,85 +73,130 @@ export const AuthProvider = ({ children }) => {
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [authError, setAuthError] = useState(null);
 
-  useEffect(() => {
-    checkSession();
+  const hydrationInFlightRef = useRef(new Map());
+  const latestRequestedAuthUserIdRef = useRef(null);
+  const hasLoggedSessionTimeoutRef = useRef(false);
+  const hasLoggedEmployeeTimeoutRef = useRef(false);
 
-    const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (!session?.user) {
-        setUser(null);
-        setIsAuthenticated(false);
-        setAuthError({ type: 'auth_required', message: 'Authentication required' });
-        setIsLoadingAuth(false);
-        return;
-      }
-
-      await hydrateUser(session.user);
-    });
-
-    return () => {
-      data?.subscription?.unsubscribe();
-    };
+  const setUnauthenticatedState = useCallback(() => {
+    latestRequestedAuthUserIdRef.current = null;
+    setUser(null);
+    setIsAuthenticated(false);
+    setAuthError({ type: 'auth_required', message: 'Authentication required' });
+    setIsLoadingAuth(false);
   }, []);
 
-  const hydrateUser = async (authUser) => {
-    const fallbackUser = buildNormalizedUser({
-      authUser,
-      employee: null,
-      role: null
-    });
+  const logAuthError = useCallback((label, error, options = {}) => {
+    const suppressTimeoutRef = options?.suppressTimeoutRef;
 
-    try {
-      const { data: employee, error: employeeError } = await withTimeout(
-        supabase
-          .from('employees')
-          .select('id, auth_user_id, role_id, location_id, first_name, last_name, email')
-          .eq('auth_user_id', authUser.id)
-          .maybeSingle(),
-        HYDRATION_TIMEOUT_MS,
-        'Employee lookup timed out'
-      );
+    if (isTimeoutError(error) && suppressTimeoutRef) {
+      if (!suppressTimeoutRef.current) {
+        console.warn(label, error);
+        suppressTimeoutRef.current = true;
+      }
+      return;
+    }
 
-      if (employeeError) {
-        console.error('Failed to hydrate auth user:', employeeError);
+    console.error(label, error);
+  }, []);
+
+  const hydrateUser = useCallback(async (authUser) => {
+    if (!authUser?.id) {
+      setUnauthenticatedState();
+      return null;
+    }
+
+    const authUserId = String(authUser.id);
+    latestRequestedAuthUserIdRef.current = authUserId;
+
+    const existingHydration = hydrationInFlightRef.current.get(authUserId);
+    if (existingHydration) {
+      return existingHydration;
+    }
+
+    const hydrationPromise = (async () => {
+      const fallbackUser = buildNormalizedUser({
+        authUser,
+        employee: null,
+        role: null
+      });
+
+      try {
+        const { data: employee, error: employeeError } = await withTimeout(
+          supabase
+            .from('employees')
+            .select('id, auth_user_id, role_id, location_id, first_name, last_name, email')
+            .eq('auth_user_id', authUser.id)
+            .maybeSingle(),
+          HYDRATION_TIMEOUT_MS,
+          'Employee lookup timed out'
+        );
+
+        if (latestRequestedAuthUserIdRef.current !== authUserId) {
+          return null;
+        }
+
+        if (employeeError) {
+          logAuthError('Failed to hydrate auth user:', employeeError);
+          setUser(fallbackUser);
+          setIsAuthenticated(true);
+          setAuthError(null);
+          return fallbackUser;
+        }
+
+        let role = null;
+        if (employee?.role_id) {
+          const { data: roleData, error: roleError } = await withTimeout(
+            supabase
+              .from('roles')
+              .select('id, name, code')
+              .eq('id', employee.role_id)
+              .maybeSingle(),
+            HYDRATION_TIMEOUT_MS,
+            'Role lookup timed out'
+          );
+
+          if (roleError) {
+            logAuthError('Failed to load role for employee:', roleError);
+          } else {
+            role = roleData ?? null;
+          }
+        }
+
+        if (latestRequestedAuthUserIdRef.current !== authUserId) {
+          return null;
+        }
+
+        const nextUser = buildNormalizedUser({ authUser, employee, role });
+        setUser(nextUser);
+        setIsAuthenticated(true);
+        setAuthError(null);
+        return nextUser;
+      } catch (error) {
+        if (latestRequestedAuthUserIdRef.current !== authUserId) {
+          return null;
+        }
+
+        logAuthError('Failed to hydrate auth user:', error, {
+          suppressTimeoutRef: hasLoggedEmployeeTimeoutRef
+        });
         setUser(fallbackUser);
         setIsAuthenticated(true);
         setAuthError(null);
-        return;
-      }
-
-      let role = null;
-      if (employee?.role_id) {
-        const { data: roleData, error: roleError } = await withTimeout(
-          supabase
-            .from('roles')
-            .select('id, name, code')
-            .eq('id', employee.role_id)
-            .maybeSingle(),
-          HYDRATION_TIMEOUT_MS,
-          'Role lookup timed out'
-        );
-
-        if (roleError) {
-          console.error('Failed to load role for employee:', roleError);
-        } else {
-          role = roleData ?? null;
+        return fallbackUser;
+      } finally {
+        hydrationInFlightRef.current.delete(authUserId);
+        if (latestRequestedAuthUserIdRef.current === authUserId) {
+          setIsLoadingAuth(false);
         }
       }
+    })();
 
-      setUser(buildNormalizedUser({ authUser, employee, role }));
-      setIsAuthenticated(true);
-      setAuthError(null);
-    } catch (error) {
-      console.error('Failed to hydrate auth user:', error);
-      setUser(fallbackUser);
-      setIsAuthenticated(true);
-      setAuthError(null);
-    } finally {
-      setIsLoadingAuth(false);
-    }
-  };
+    hydrationInFlightRef.current.set(authUserId, hydrationPromise);
+    return hydrationPromise;
+  }, [logAuthError, setUnauthenticatedState]);
 
-  const checkSession = async () => {
+  const checkSession = useCallback(async () => {
     try {
       setIsLoadingAuth(true);
       setAuthError(null);
@@ -156,32 +206,43 @@ export const AuthProvider = ({ children }) => {
         HYDRATION_TIMEOUT_MS,
         'Session check timed out'
       );
+
       if (error) throw error;
 
       const session = data?.session;
       if (!session?.user) {
-        setUser(null);
-        setIsAuthenticated(false);
-        setAuthError({ type: 'auth_required', message: 'Authentication required' });
-        setIsLoadingAuth(false);
+        setUnauthenticatedState();
         return;
       }
 
-      try {
-        await hydrateUser(session.user);
-      } catch (error) {
-        console.error('Failed to hydrate auth user:', error);
-        setUser(buildNormalizedUser({ authUser: session.user, employee: null, role: null }));
-        setIsAuthenticated(true);
-        setAuthError(null);
-        setIsLoadingAuth(false);
-      }
+      await hydrateUser(session.user);
     } catch (error) {
-      console.error('Session check failed:', error);
+      logAuthError('Session check failed:', error, {
+        suppressTimeoutRef: hasLoggedSessionTimeoutRef
+      });
       setAuthError(null);
       setIsLoadingAuth(false);
     }
-  };
+  }, [hydrateUser, logAuthError, setUnauthenticatedState]);
+
+  useEffect(() => {
+    checkSession();
+
+    const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!session?.user) {
+        setUnauthenticatedState();
+        return;
+      }
+
+      setIsLoadingAuth(true);
+      setAuthError(null);
+      await hydrateUser(session.user);
+    });
+
+    return () => {
+      data?.subscription?.unsubscribe();
+    };
+  }, [checkSession, hydrateUser, setUnauthenticatedState]);
 
   const updateProfile = async (payload) => {
     const employeeId = user?.employeeId;

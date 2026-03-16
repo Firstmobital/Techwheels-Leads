@@ -41,6 +41,7 @@ const MESSAGES = {
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('vana');
+  const [aiLeadsView, setAiLeadsView] = useState('assigned');
   const { user: currentUser, isLoadingAuth } = useAuth();
   const queryClient = useQueryClient();
 
@@ -127,6 +128,22 @@ export default function Home() {
     return keys;
   }, [sentMessages]);
 
+  const aiSentCountByLeadId = useMemo(() => {
+    const counts = new Map();
+    sentMessages.forEach((row) => {
+      const leadSource = String(row?.lead_source || '').trim().toLowerCase();
+      const sourceRecordId = row?.source_record_id;
+      if (leadSource !== 'ai' || sourceRecordId === null || sourceRecordId === undefined) {
+        return;
+      }
+
+      const key = String(sourceRecordId);
+      const currentCount = counts.get(key) ?? 0;
+      counts.set(key, currentCount + 1);
+    });
+    return counts;
+  }, [sentMessages]);
+
   /** @type {import('@tanstack/react-query').UseMutationOptions<any, unknown, MarkSentPayload, unknown>} */
   const markSentMutationOptions = {
     mutationFn: ({ lead, leadType, messageText, templateId }) => {
@@ -192,6 +209,41 @@ export default function Home() {
       return String(salespersonId) === String(currentEmployeeId);
     });
   }, [aiLeads, currentUser, isAdmin]);
+
+  const aiLeadSections = useMemo(() => {
+    const unassigned = [];
+    const assigned = [];
+
+    filteredAILeads.forEach((lead) => {
+      const salespersonId = lead?.salesperson_id ?? null;
+      const isUnassigned = salespersonId === null || salespersonId === undefined || salespersonId === '';
+      if (isUnassigned) {
+        unassigned.push(lead);
+        return;
+      }
+
+      assigned.push(lead);
+    });
+
+    const followUpPendingToday = [];
+    const followUpNotPending = [];
+
+    assigned.forEach((lead) => {
+      const sentCount = aiSentCountByLeadId.get(String(lead?.id ?? '')) ?? 0;
+      if (sentCount < 4) {
+        followUpPendingToday.push(lead);
+      } else {
+        followUpNotPending.push(lead);
+      }
+    });
+
+    return {
+      unassigned,
+      assigned,
+      followUpPendingToday,
+      followUpNotPending,
+    };
+  }, [filteredAILeads, aiSentCountByLeadId]);
 
   const tabData = {
     vana: { leads: filterLeads(vanaLeads, 'vana'), loading: vanaLoading, refreshKey: 'vna-stock' },
@@ -260,9 +312,105 @@ export default function Home() {
             ) : current.leads.length === 0 ? (
               <div className="text-center py-16 text-gray-400 text-sm">No AI leads available</div>
             ) : (
-              current.leads.map(lead => (
-                <AILeadCard key={lead.id} lead={lead} currentUser={currentUser} isAdmin={isAdmin} />
-              ))
+              <>
+                <div className="mb-4 rounded-2xl border border-gray-200 bg-white p-1 flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setAiLeadsView('assigned')}
+                    className={cn(
+                      'flex-1 rounded-xl px-3 py-2 text-xs font-semibold transition-all',
+                      aiLeadsView === 'assigned'
+                        ? 'bg-gray-900 text-white'
+                        : 'text-gray-500 hover:bg-gray-100'
+                    )}
+                  >
+                    Assigned ({aiLeadSections.assigned.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAiLeadsView('unassigned')}
+                    className={cn(
+                      'flex-1 rounded-xl px-3 py-2 text-xs font-semibold transition-all',
+                      aiLeadsView === 'unassigned'
+                        ? 'bg-gray-900 text-white'
+                        : 'text-gray-500 hover:bg-gray-100'
+                    )}
+                  >
+                    Unassigned ({aiLeadSections.unassigned.length})
+                  </button>
+                </div>
+
+                {aiLeadsView === 'unassigned' ? (
+                  aiLeadSections.unassigned.length === 0 ? (
+                    <div className="text-center py-16 text-gray-400 text-sm">No unassigned AI leads</div>
+                  ) : (
+                    aiLeadSections.unassigned.map((lead) => (
+                      <AILeadCard
+                        key={lead.id}
+                        lead={lead}
+                        currentUser={currentUser}
+                        isAdmin={isAdmin}
+                        mode="unassigned"
+                        templates={allTemplates}
+                        onMarkSent={handleMarkSent}
+                        sentCount={aiSentCountByLeadId.get(String(lead?.id ?? '')) ?? 0}
+                      />
+                    ))
+                  )
+                ) : (
+                  <div className="space-y-4">
+                    <section>
+                      <div className="mb-2 flex items-center justify-between">
+                        <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Follow-up Pending Today</h3>
+                        <span className="text-[11px] text-gray-400">{aiLeadSections.followUpPendingToday.length}</span>
+                      </div>
+                      {aiLeadSections.followUpPendingToday.length === 0 ? (
+                        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-4 text-xs text-gray-400">
+                          No assigned leads pending follow-up
+                        </div>
+                      ) : (
+                        aiLeadSections.followUpPendingToday.map((lead) => (
+                          <AILeadCard
+                            key={lead.id}
+                            lead={lead}
+                            currentUser={currentUser}
+                            isAdmin={isAdmin}
+                            mode="assigned"
+                            templates={allTemplates}
+                            onMarkSent={handleMarkSent}
+                            sentCount={aiSentCountByLeadId.get(String(lead?.id ?? '')) ?? 0}
+                          />
+                        ))
+                      )}
+                    </section>
+
+                    <section>
+                      <div className="mb-2 flex items-center justify-between">
+                        <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Follow-up Not Pending</h3>
+                        <span className="text-[11px] text-gray-400">{aiLeadSections.followUpNotPending.length}</span>
+                      </div>
+                      {aiLeadSections.followUpNotPending.length === 0 ? (
+                        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-4 text-xs text-gray-400">
+                          No assigned leads in not-pending state
+                        </div>
+                      ) : (
+                        aiLeadSections.followUpNotPending.map((lead) => (
+                          <AILeadCard
+                            key={lead.id}
+                            lead={lead}
+                            currentUser={currentUser}
+                            isAdmin={isAdmin}
+                            mode="assigned"
+                            templates={allTemplates}
+                            onMarkSent={handleMarkSent}
+                            sentCount={aiSentCountByLeadId.get(String(lead?.id ?? '')) ?? 0}
+                          />
+                        ))
+                      )}
+                    </section>
+                  </div>
+                )}
+              </>
             )}
           </div>
         ) : (

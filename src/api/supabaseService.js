@@ -92,6 +92,8 @@ const normalizeAILeadReadRow = (row, employeeById = new Map()) => {
     salesperson_id: salespersonId,
     location_id: normalizeNullable(safe.location_id),
     source_conversation_id: normalizeNullable(safe.source_conversation_id),
+    conversation_summary: normalizeNullable(safe.conversation_summary),
+    conversation_transcript: normalizeNullable(safe.conversation_transcript),
     remarks: normalizeNullable(safe.remarks),
     greenform_requested: normalizeNullable(safe.greenform_requested),
     opty_id: normalizeNullable(safe.opty_id),
