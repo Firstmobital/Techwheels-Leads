@@ -58,12 +58,14 @@ const buildNormalizedUser = ({ authUser, employee, role }) => {
     roleId: employee?.role_id ?? null,
     roleName,
     roleCode,
+    isSuperAdmin: Boolean(employee?.is_super_admin),
     locationId: employee?.location_id ?? null,
 
     // Compatibility fields for existing web screens during Phase 1.
     id: employee?.id ?? authUser?.id ?? null,
     full_name: fullName,
-    role: normalizeRoleValue(roleCode, roleName)
+    role: normalizeRoleValue(roleCode, roleName),
+    is_super_admin: Boolean(employee?.is_super_admin)
   };
 };
 
@@ -75,6 +77,7 @@ export const AuthProvider = ({ children }) => {
 
   const hydrationInFlightRef = useRef(new Map());
   const latestRequestedAuthUserIdRef = useRef(null);
+  const hydratedAuthUserIdRef = useRef(null);
   const hasLoggedSessionTimeoutRef = useRef(false);
   const hasLoggedEmployeeTimeoutRef = useRef(false);
 
@@ -125,7 +128,7 @@ export const AuthProvider = ({ children }) => {
         const { data: employee, error: employeeError } = await withTimeout(
           supabase
             .from('employees')
-            .select('id, auth_user_id, role_id, location_id, first_name, last_name, email')
+            .select('id, auth_user_id, role_id, location_id, first_name, last_name, email, is_super_admin')
             .eq('auth_user_id', authUser.id)
             .maybeSingle(),
           HYDRATION_TIMEOUT_MS,
@@ -226,6 +229,10 @@ export const AuthProvider = ({ children }) => {
   }, [hydrateUser, logAuthError, setUnauthenticatedState]);
 
   useEffect(() => {
+    hydratedAuthUserIdRef.current = user?.authUserId ? String(user.authUserId) : null;
+  }, [user]);
+
+  useEffect(() => {
     checkSession();
 
     const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
@@ -234,7 +241,13 @@ export const AuthProvider = ({ children }) => {
         return;
       }
 
-      setIsLoadingAuth(true);
+      const nextAuthUserId = String(session.user.id);
+      const currentHydratedAuthUserId = hydratedAuthUserIdRef.current;
+      const shouldShowLoading = !currentHydratedAuthUserId || currentHydratedAuthUserId !== nextAuthUserId;
+
+      if (shouldShowLoading) {
+        setIsLoadingAuth(true);
+      }
       setAuthError(null);
       await hydrateUser(session.user);
     });
@@ -261,7 +274,7 @@ export const AuthProvider = ({ children }) => {
       .from('employees')
       .update(employeePayload)
       .eq('id', employeeId)
-      .select('id, auth_user_id, role_id, location_id, first_name, last_name, email')
+      .select('id, auth_user_id, role_id, location_id, first_name, last_name, email, is_super_admin')
       .maybeSingle();
 
     if (error) throw error;
