@@ -20,6 +20,30 @@ import { supabase } from "../lib/supabase";
 const FOLLOW_UP_DAYS = [1, 2, 5];
 const MATCHTALK_FOLLOW_UP_DAYS = [1, 2, 4];
 
+const CATEGORY_ALIASES = {
+  vana: ["vana", "vna"],
+  matchtalk: ["matchtalk", "match_stock", "match"],
+  greenforms: ["greenforms", "green_forms", "greenform"],
+  ai_leads: ["ai_leads", "ai-leads", "ai"],
+};
+
+const toInt = (value, fallback) => {
+  const parsed = Number.parseInt(String(value ?? "").trim(), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const toCanonicalCategory = (value) => {
+  const token = String(value || "").trim().toLowerCase();
+  if (!token) return "";
+  if (token === "all" || token === "general") return token;
+  const match = Object.entries(CATEGORY_ALIASES).find(([, aliases]) => aliases.includes(token));
+  return match ? match[0] : token;
+};
+
+const getTemplateCategory = (template) => {
+  return toCanonicalCategory(template?.category || template?.source || "");
+};
+
 const VALID_LEAD_SOURCES = new Set(["walkin", "ivr", "ai"]);
 const TAB_TO_DEFAULT_SOURCE = {
   vana: "walkin",
@@ -306,9 +330,46 @@ export default function HomeScreen() {
     return Math.floor((Date.now() - new Date(first.created_at).getTime()) / oneDayMs);
   };
 
-  const getNextDueStep = (history, tabId) => {
-    const daysSequence = tabId === "matchtalk" ? MATCHTALK_FOLLOW_UP_DAYS : FOLLOW_UP_DAYS;
+  const getNextDueStep = (history, tabId, templateOptions = []) => {
+    const normalizedSequenceTemplates = (Array.isArray(templateOptions) ? templateOptions : [])
+      .filter((template) => template?.step_number !== null && template?.step_number !== undefined)
+      .map((template, index) => ({
+        ...template,
+        step_number: Math.max(1, toInt(template?.step_number, index + 1)),
+        delay_days: Math.max(0, toInt(template?.delay_days, 0)),
+      }))
+      .sort((a, b) => {
+        if (a.step_number !== b.step_number) return a.step_number - b.step_number;
+        return a.delay_days - b.delay_days;
+      });
+
+    const hasConfiguredTiming = normalizedSequenceTemplates.some(
+      (template) => template.step_number > 1 || template.delay_days > 0
+    );
+    const sequenceTemplates = hasConfiguredTiming ? normalizedSequenceTemplates : [];
+
     const sentCount = history?.length || 0;
+
+    if (sequenceTemplates.length > 0) {
+      if (sentCount >= sequenceTemplates.length) return null;
+
+      const nextTemplate = sequenceTemplates[sentCount];
+      const nextStep = Math.max(1, toInt(nextTemplate?.step_number, sentCount + 1));
+      const nextDelay = Math.max(0, toInt(nextTemplate?.delay_days, 0));
+
+      const daysSinceFirst = getDaysSinceFirstSent(history);
+      if (daysSinceFirst === null) {
+        return { step: nextStep, overdue: false, daysUntil: nextDelay };
+      }
+
+      if (daysSinceFirst >= nextDelay) {
+        return { step: nextStep, overdue: daysSinceFirst > nextDelay, daysUntil: 0 };
+      }
+
+      return { step: nextStep, overdue: false, daysUntil: Math.max(nextDelay - daysSinceFirst, 0) };
+    }
+
+    const daysSequence = tabId === "matchtalk" ? MATCHTALK_FOLLOW_UP_DAYS : FOLLOW_UP_DAYS;
 
     if (sentCount >= daysSequence.length) return null;
 
@@ -345,7 +406,7 @@ export default function HomeScreen() {
   const getTemplateOptionsForLeadStep = (lead) => {
     const leadLanguage = String(lead?.language || lead?.preferred_language || "en").trim().toLowerCase();
     const relevant = templates.filter((template) => {
-      const category = String(template?.category || "").trim().toLowerCase();
+      const category = getTemplateCategory(template);
       const categoryMatch = category === activeTab || category === "all" || category === "general";
       const active = template?.is_active !== false;
       return categoryMatch && active;
@@ -355,7 +416,7 @@ export default function HomeScreen() {
       (template) => String(template?.language || "").trim().toLowerCase() === leadLanguage
     );
     if (languageSpecific.length > 0) {
-      return languageSpecific;
+      return [...languageSpecific].sort((a, b) => Math.max(1, toInt(a?.step_number, 1)) - Math.max(1, toInt(b?.step_number, 1)));
     }
 
     const defaults = relevant.filter((template) => {
@@ -363,7 +424,8 @@ export default function HomeScreen() {
       return !language || language === "en";
     });
 
-    return defaults.length > 0 ? defaults : relevant;
+    const rows = defaults.length > 0 ? defaults : relevant;
+    return [...rows].sort((a, b) => Math.max(1, toInt(a?.step_number, 1)) - Math.max(1, toInt(b?.step_number, 1)));
   };
 
   const getPreviewMessage = (previewState) => {
@@ -777,11 +839,26 @@ export default function HomeScreen() {
                 const msgKey = getSentMessageKeyForRow(m);
                 return Boolean(leadKey && msgKey && msgKey === leadKey);
               });
-              const nextStep = getNextDueStep(history, activeTab);
+              const templateOptions = getTemplateOptionsForLeadStep(item);
+              const nextStep = getNextDueStep(history, activeTab, templateOptions);
               const isDone = !nextStep;
               const isOverdue = Boolean(nextStep?.overdue);
 
-              const followupDays = activeTab === "matchtalk" ? MATCHTALK_FOLLOW_UP_DAYS : FOLLOW_UP_DAYS;
+              const hasConfiguredTiming = templateOptions
+                .filter((template) => template?.step_number !== null && template?.step_number !== undefined)
+                .some((template, index) => {
+                  const stepNumber = Math.max(1, toInt(template?.step_number, index + 1));
+                  const delayDays = Math.max(0, toInt(template?.delay_days, 0));
+                  return stepNumber > 1 || delayDays > 0;
+                });
+
+              const followupDays = hasConfiguredTiming
+                ? templateOptions
+                    .filter((template) => template?.step_number !== null && template?.step_number !== undefined)
+                    .map((template, index) => Math.max(1, toInt(template?.step_number, index + 1)))
+                    .sort((a, b) => a - b)
+                : (activeTab === "matchtalk" ? MATCHTALK_FOLLOW_UP_DAYS : FOLLOW_UP_DAYS);
+              const dueLabel = hasConfiguredTiming ? "Step" : "Day";
               const sentSteps = new Set(followupDays.slice(0, history.length));
 
               return (
@@ -809,7 +886,7 @@ export default function HomeScreen() {
                               !sent && nextStep?.step === day && isOverdue && styles.stepPillTextDue,
                             ]}
                           >
-                            Day {day}
+                            {dueLabel} {day}
                           </Text>
                         </View>
                       );
@@ -828,7 +905,7 @@ export default function HomeScreen() {
                         <Text style={styles.sendButtonText}>
                           {sendingLeadId === item.id
                             ? "Sending..."
-                            : `WhatsApp Day ${nextStep.step}`}
+                            : `WhatsApp ${dueLabel} ${nextStep.step}`}
                         </Text>
                       </Pressable>
                     )}

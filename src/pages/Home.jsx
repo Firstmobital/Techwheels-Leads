@@ -204,19 +204,30 @@ export default function Home() {
     queryClient.invalidateQueries({ queryKey: [key] });
   }, [queryClient]);
 
+  const isVisibleAILead = useCallback((lead) => {
+    const hasOptyId = Boolean(String(lead?.opty_id ?? '').trim());
+    if (hasOptyId) return false;
+
+    const disposition = String(lead?.lead_disposition ?? 'active').trim().toLowerCase();
+    if (disposition === 'uninterested') return false;
+
+    return true;
+  }, []);
+
   // Filter AI leads: admin sees all, CA sees unassigned + their own
   const filteredAILeads = useMemo(() => {
     if (!currentUser) return [];
+    const actionableLeads = aiLeads.filter((lead) => isVisibleAILead(lead));
     const currentEmployeeId = currentUser.employeeId ?? null;
-    if (isAdmin) return aiLeads;
-    return aiLeads.filter((lead) => {
+    if (isAdmin) return actionableLeads;
+    return actionableLeads.filter((lead) => {
       const salespersonId = lead.salesperson_id ?? null;
       const isUnassigned = salespersonId === null || salespersonId === undefined || salespersonId === '';
       if (isUnassigned) return true;
       if (currentEmployeeId === null || currentEmployeeId === undefined) return false;
       return String(salespersonId) === String(currentEmployeeId);
     });
-  }, [aiLeads, currentUser, isAdmin]);
+  }, [aiLeads, currentUser, isAdmin, isVisibleAILead]);
 
   const aiLeadSections = useMemo(() => {
     const unassigned = [];

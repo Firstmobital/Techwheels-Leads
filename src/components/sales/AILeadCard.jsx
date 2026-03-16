@@ -135,6 +135,7 @@ export default function AILeadCard({
 
   const markUninterestedMutation = useMutation({
     mutationFn: () => supabaseApi.entities.AILead.update(lead.id, {
+      lead_disposition: 'uninterested',
       opty_status: 'closed',
     }),
     onSuccess: () => {

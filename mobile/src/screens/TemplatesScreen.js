@@ -7,7 +7,9 @@ const EMPTY_FORM = {
   source: "ai",
   model_name: "",
   step: "",
-  category: "general",
+  category: "vana",
+  delay_days: "0",
+  step_number: "1",
   channel: "whatsapp",
   language: "en",
   template_text: "",
@@ -16,6 +18,12 @@ const EMPTY_FORM = {
 
 const SOURCE_OPTIONS = ["ai", "vna", "match"];
 const STEP_OPTIONS = ["M1", "M2", "M3", "M4"];
+const CATEGORY_OPTIONS = ["vana", "matchtalk", "greenforms", "ai_leads"];
+
+const toInt = (value, fallback) => {
+  const parsed = Number.parseInt(String(value ?? "").trim(), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
 
 export default function TemplatesScreen() {
   const [templates, setTemplates] = useState([]);
@@ -67,7 +75,9 @@ export default function TemplatesScreen() {
       source: form.source.trim() || null,
       model_name: form.model_name.trim() || null,
       step: form.step.trim() || null,
-      category: form.category.trim() || "general",
+      category: form.category.trim() || "vana",
+      delay_days: Math.max(0, toInt(form.delay_days, 0)),
+      step_number: Math.max(1, toInt(form.step_number, 1)),
       channel: form.channel.trim() || "whatsapp",
       language: form.language.trim() || "en",
       template_text: form.template_text,
@@ -101,7 +111,9 @@ export default function TemplatesScreen() {
       source: String(template.source || "").trim(),
       model_name: template.model_name || "",
       step: template.step || "",
-      category: template.category || "general",
+      category: template.category || "vana",
+      delay_days: String(template.delay_days ?? 0),
+      step_number: String(template.step_number ?? 1),
       channel: template.channel || "whatsapp",
       language: template.language || "en",
       template_text: template.template_text || "",
@@ -215,6 +227,34 @@ export default function TemplatesScreen() {
               </>
             ) : null}
 
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+              {CATEGORY_OPTIONS.map((category) => (
+                <Pressable
+                  key={`category-${category}`}
+                  style={[styles.filterPill, form.category === category && styles.filterPillActive]}
+                  onPress={() => setForm((prev) => ({ ...prev, category }))}
+                >
+                  <Text style={[styles.filterPillText, form.category === category && styles.filterPillTextActive]}>{category}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+
+            <TextInput
+              style={styles.input}
+              placeholder="Step number"
+              keyboardType="number-pad"
+              value={form.step_number}
+              onChangeText={(value) => setForm((prev) => ({ ...prev, step_number: value }))}
+            />
+
+            <TextInput
+              style={styles.input}
+              placeholder="Delay days"
+              keyboardType="number-pad"
+              value={form.delay_days}
+              onChangeText={(value) => setForm((prev) => ({ ...prev, delay_days: value }))}
+            />
+
             <Pressable
               style={[styles.filterPill, form.is_active && styles.filterPillActive]}
               onPress={() => setForm((prev) => ({ ...prev, is_active: !prev.is_active }))}
@@ -263,8 +303,9 @@ export default function TemplatesScreen() {
             </View>
 
             <Text style={styles.meta}>
-              Source: {template.source ? String(template.source).toUpperCase() : "-"} | Model: {template.model_name || "-"} | Step: {template.step || "-"}
+              Source: {template.source ? String(template.source).toUpperCase() : "-"} | Category: {template.category || "vana"} | Model: {template.model_name || "-"}
             </Text>
+            <Text style={styles.meta}>Follow-up: step {template.step_number ?? 1} after {template.delay_days ?? 0} day(s)</Text>
             <Text style={styles.meta}>Status: {template.is_active === false ? "inactive" : "active"}</Text>
             <Text style={styles.messagePreview}>{template.template_text || ""}</Text>
           </View>

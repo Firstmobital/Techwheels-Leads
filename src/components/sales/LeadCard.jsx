@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { MessageCircle, CheckCircle2, Car, Phone, User, Clock, PhoneCall } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerContent, DrawerTrigger } from "@/components/ui/drawer";
@@ -8,9 +8,40 @@ import { getNormalizedLead } from './leadDataHelper';
 import { matchesSentMessageToLead } from '@/utils/sentMessageUtils';
 import { buildCallUrl, buildWhatsAppUrl } from '@/utils/phone';
 
-// Follow-up sequence: day 1 (initial), day 2, day 5
+const UIButton = /** @type {any} */ (Button);
+const UIDrawer = /** @type {any} */ (Drawer);
+const UIDrawerTrigger = /** @type {any} */ (DrawerTrigger);
+const UIDrawerContent = /** @type {any} */ (DrawerContent);
+
+// Legacy day-based follow-up sequence (used when templates don't define delay/step).
 const FOLLOW_UP_DAYS = [1, 2, 5];
 const MATCHTALK_FOLLOW_UP_DAYS = [1, 2, 4];
+
+const CATEGORY_ALIASES = {
+  vana: ['vana', 'vna'],
+  matchtalk: ['matchtalk', 'match_stock', 'match'],
+  greenforms: ['greenforms', 'green_forms', 'greenform'],
+  ai_leads: ['ai_leads', 'ai-leads', 'ai'],
+};
+
+const toInt = (value, fallback) => {
+  const parsed = Number.parseInt(String(value ?? '').trim(), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const toCanonicalCategory = (value) => {
+  const token = String(value || '').trim().toLowerCase();
+  if (!token) return '';
+  if (token === 'all' || token === 'general') return token;
+  const entry = Object.entries(CATEGORY_ALIASES).find(([, aliases]) => aliases.includes(token));
+  return entry ? entry[0] : token;
+};
+
+const getTemplateCategory = (template) => {
+  const rawCategory = template?.category;
+  const rawSource = template?.source;
+  return toCanonicalCategory(rawCategory || rawSource || '');
+};
 
 const FOLLOW_UP_MESSAGES = {
   vana: {
@@ -32,13 +63,33 @@ const FOLLOW_UP_MESSAGES = {
 
 function getDaysSinceFirstSent(history) {
   if (!history?.length) return null;
-  const first = [...history].sort((a, b) => new Date(a.created_at) - new Date(b.created_at))[0];
+  const first = [...history].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0];
   if (!first?.created_at) return null;
   return differenceInDays(new Date(), new Date(first.created_at));
 }
 
-function getNextDueStep(history, tab) {
+function getNextDueStep(history, tab, sequenceTemplates = []) {
   const sentCount = history?.length || 0;
+
+  if (sequenceTemplates.length > 0) {
+    if (sentCount >= sequenceTemplates.length) return null;
+
+    const nextTemplate = sequenceTemplates[sentCount];
+    const nextStep = Math.max(1, toInt(nextTemplate?.step_number, sentCount + 1));
+    const nextDelay = Math.max(0, toInt(nextTemplate?.delay_days, 0));
+
+    const daysSince = getDaysSinceFirstSent(history);
+    if (daysSince === null) {
+      return { step: nextStep, daysUntil: nextDelay, overdue: false };
+    }
+
+    if (daysSince >= nextDelay) {
+      return { step: nextStep, daysUntil: 0, overdue: daysSince > nextDelay };
+    }
+
+    return { step: nextStep, daysUntil: nextDelay - daysSince, overdue: false };
+  }
+
   const days = tab === 'matchtalk' ? MATCHTALK_FOLLOW_UP_DAYS : FOLLOW_UP_DAYS;
 
   if (sentCount >= days.length) return null;
@@ -74,8 +125,34 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
   const resolvedGreenFormOwnerId = normalizedLead.salesperson_id || normalizedLead.assigned_to || '';
   const resolvedGreenFormOwnerName = normalizedLead.employee_full_name || normalizedLead.ca_name || '';
 
+  const relevantTemplates = useMemo(() => {
+    const safeTemplates = Array.isArray(templates) ? templates : [];
+    return safeTemplates.filter((template) => {
+      if (template?.is_active === false) return false;
+      const category = getTemplateCategory(template);
+      return category === tab || category === 'all' || category === 'general';
+    });
+  }, [templates, tab]);
+
+  const sequenceTemplates = useMemo(() => {
+    const normalized = relevantTemplates
+      .filter((template) => template?.step_number !== null && template?.step_number !== undefined)
+      .map((template, index) => ({
+        ...template,
+        step_number: Math.max(1, toInt(template?.step_number, index + 1)),
+        delay_days: Math.max(0, toInt(template?.delay_days, 0)),
+      }))
+      .sort((a, b) => {
+        if (a.step_number !== b.step_number) return a.step_number - b.step_number;
+        return a.delay_days - b.delay_days;
+      });
+
+      const hasConfiguredTiming = normalized.some((template) => template.step_number > 1 || template.delay_days > 0);
+      return hasConfiguredTiming ? normalized : [];
+  }, [relevantTemplates]);
+
   const historyForLead = sentMessages.filter((row) => matchesSentMessageToLead(row, lead, tab));
-   const nextDue = getNextDueStep(historyForLead, tab);
+   const nextDue = getNextDueStep(historyForLead, tab, sequenceTemplates);
    const allDone = !nextDue;
 
    // For current step, pick the right message
@@ -86,13 +163,12 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
      : message;
 
    // Prefer templates by category; fallback to generic/all categories.
-  const dbStepTemplate = (() => {
-    const candidates = templates?.filter((t) => {
-      const category = String(t.category || '').toLowerCase();
-      return category === tab || category === 'all' || category === 'general';
-    }) || [];
-    return candidates.find((t) => t.is_active !== false) || candidates[0] || null;
-  })();
+  const dbStepTemplate = useMemo(() => {
+    if (sequenceTemplates.length > 0 && nextDue?.step) {
+      return sequenceTemplates.find((template) => Math.max(1, toInt(template?.step_number, 1)) === nextDue.step) || sequenceTemplates[0] || null;
+    }
+    return relevantTemplates[0] || null;
+  }, [sequenceTemplates, nextDue, relevantTemplates]);
 
   const fillPlaceholders = (msg) => msg
     .replace(/{customer_name}/g, normalizedLead.customer_name || '')
@@ -139,7 +215,10 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
   };
 
   // Determine badge for follow-up status
-  const days = tab === 'matchtalk' ? MATCHTALK_FOLLOW_UP_DAYS : FOLLOW_UP_DAYS;
+  const days = sequenceTemplates.length > 0
+    ? sequenceTemplates.map((template, index) => Math.max(1, toInt(template?.step_number, index + 1)))
+    : (tab === 'matchtalk' ? MATCHTALK_FOLLOW_UP_DAYS : FOLLOW_UP_DAYS);
+  const dueLabel = sequenceTemplates.length > 0 ? 'Step' : 'Day';
   const sentCount = historyForLead.length;
   const sentSteps = new Set(days.slice(0, sentCount));
 
@@ -183,7 +262,7 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
             {/* Step progress pills */}
             {isSent && (
               <div className="flex items-center gap-1.5 mt-2">
-                {(tab === 'matchtalk' ? MATCHTALK_FOLLOW_UP_DAYS : FOLLOW_UP_DAYS).map(day => (
+                {days.map(day => (
                   <span
                     key={day}
                     className={cn(
@@ -195,7 +274,7 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
                         : "bg-gray-50 text-gray-400 border-gray-200"
                     )}
                   >
-                    Day {day}
+                    {dueLabel} {day}
                   </span>
                 ))}
               </div>
@@ -277,20 +356,20 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
               )}
               {!allDone && nextDue && nextDue.step > 1 && !nextDue.overdue && (
                 <span className="text-[10px] font-medium text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">
-                  Day {nextDue.step} in {nextDue.daysUntil}d
+                  {dueLabel} {nextDue.step} in {nextDue.daysUntil}d
                 </span>
               )}
             </div>
 
-            {templates?.length > 0 && !allDone && (
+            {relevantTemplates.length > 0 && !allDone && (
               <div className="mt-2">
-                <Drawer>
-                  <DrawerTrigger asChild>
-                    <Button variant="outline" className="w-full h-7 text-[11px] rounded-lg border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 dark:text-gray-100 justify-start">
-                      {selectedTemplateId === 'default' && dbStepTemplate ? `📋 ${dbStepTemplate.name}` : `Default (Day ${currentStep})`}
-                    </Button>
-                  </DrawerTrigger>
-                  <DrawerContent>
+                <UIDrawer>
+                  <UIDrawerTrigger asChild>
+                    <UIButton variant="outline" className="w-full h-7 text-[11px] rounded-lg border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 dark:text-gray-100 justify-start">
+                      {selectedTemplateId === 'default' && dbStepTemplate ? `📋 ${dbStepTemplate.name}` : `Default (${dueLabel} ${currentStep})`}
+                    </UIButton>
+                  </UIDrawerTrigger>
+                  <UIDrawerContent>
                     <div className="p-4 space-y-2">
                       <h3 className="font-semibold text-sm text-gray-900 dark:text-white">Select Template</h3>
                       <button
@@ -301,9 +380,9 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
                             : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200'
                         }`}
                       >
-                        {dbStepTemplate ? `📋 ${dbStepTemplate.name}` : `Default (Day ${currentStep})`}
+                        {dbStepTemplate ? `📋 ${dbStepTemplate.name}` : `Default (${dueLabel} ${currentStep})`}
                       </button>
-                      {templates
+                      {relevantTemplates
                         .filter(t => t.id !== dbStepTemplate?.id)
                         .map(t => (
                           <button
@@ -319,15 +398,15 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
                           </button>
                         ))}
                     </div>
-                  </DrawerContent>
-                </Drawer>
+                  </UIDrawerContent>
+                </UIDrawer>
               </div>
             )}
           </div>
         </div>
         {!allDone && (
           <div className="flex items-start gap-2 flex-shrink-0">
-            <Button
+            <UIButton
               onClick={handleCall}
               variant="outline"
               className="rounded-xl h-12 w-12 p-0 shadow-lg"
@@ -336,9 +415,9 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
               disabled={!callLink}
             >
               <PhoneCall className="w-5 h-5" />
-            </Button>
+            </UIButton>
             <div className="flex flex-col items-center gap-1">
-              <Button
+              <UIButton
                 onClick={handleSend}
                 className={cn(
                   "rounded-xl h-12 w-12 p-0 shadow-lg",
@@ -347,8 +426,8 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
                 disabled={!waLink}
               >
                 <MessageCircle className="w-5 h-5" />
-              </Button>
-              <span className="text-[9px] font-bold text-gray-400">Day {currentStep}</span>
+              </UIButton>
+              <span className="text-[9px] font-bold text-gray-400">{dueLabel} {currentStep}</span>
             </div>
           </div>
         )}

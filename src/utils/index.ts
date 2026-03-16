@@ -6,6 +6,11 @@ export type Template = {
     id: number;
     name: string;
     category: string;
+    source?: string | null;
+    model_name?: string | null;
+    step?: string | null;
+    delay_days?: number;
+    step_number?: number;
     channel: string;
     language: string;
     template_text: string;
