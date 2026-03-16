@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { MessageCircle, CheckCircle2, Car, Phone, User, Clock } from 'lucide-react';
+import { MessageCircle, CheckCircle2, Car, Phone, User, Clock, PhoneCall } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerContent, DrawerTrigger } from "@/components/ui/drawer";
 import { cn } from "@/lib/utils";
 import { differenceInDays } from 'date-fns';
 import { getNormalizedLead } from './leadDataHelper';
 import { matchesSentMessageToLead } from '@/utils/sentMessageUtils';
+import { buildCallUrl, buildWhatsAppUrl } from '@/utils/phone';
 
 // Follow-up sequence: day 1 (initial), day 2, day 5
 const FOLLOW_UP_DAYS = [1, 2, 5];
@@ -113,8 +114,8 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
         return fillPlaceholders(t.template_text);
       })();
 
-  const phone = String(resolvedPhone).replace(/[^0-9+]/g, '').replace(/^\+/, '');
-  const waLink = `https://wa.me/${phone}?text=${encodeURIComponent(activeMessage)}`;
+  const waLink = buildWhatsAppUrl(resolvedPhone, activeMessage);
+  const callLink = buildCallUrl(resolvedPhone);
 
   // Templates are now pure text; no attachment field in operational schema.
   const activeTemplateObj = selectedTemplateId === 'default'
@@ -122,13 +123,19 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
     : templates?.find(t => t.id === selectedTemplateId);
 
   const handleSend = () => {
-    window.open(waLink, '_blank');
+    if (!waLink) return;
+    window.open(waLink, '_blank', 'noopener,noreferrer');
     onMarkSent({
       lead,
       leadType: tab,
       messageText: activeMessage,
       templateId: activeTemplateObj?.id ?? null,
     });
+  };
+
+  const handleCall = () => {
+    if (!callLink) return;
+    window.location.href = callLink;
   };
 
   // Determine badge for follow-up status
@@ -315,17 +322,30 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
           </div>
         </div>
         {!allDone && (
-          <div className="flex flex-col items-center gap-1 flex-shrink-0">
+          <div className="flex items-start gap-2 flex-shrink-0">
             <Button
-              onClick={handleSend}
-              className={cn(
-                "rounded-xl h-12 w-12 p-0 shadow-lg",
-                nextDue?.overdue ? "bg-orange-500 hover:bg-orange-600" : accentColor
-              )}
+              onClick={handleCall}
+              variant="outline"
+              className="rounded-xl h-12 w-12 p-0 shadow-lg"
+              aria-label="Call"
+              title="Call"
+              disabled={!callLink}
             >
-              <MessageCircle className="w-5 h-5" />
+              <PhoneCall className="w-5 h-5" />
             </Button>
-            <span className="text-[9px] font-bold text-gray-400">Day {currentStep}</span>
+            <div className="flex flex-col items-center gap-1">
+              <Button
+                onClick={handleSend}
+                className={cn(
+                  "rounded-xl h-12 w-12 p-0 shadow-lg",
+                  nextDue?.overdue ? "bg-orange-500 hover:bg-orange-600" : accentColor
+                )}
+                disabled={!waLink}
+              >
+                <MessageCircle className="w-5 h-5" />
+              </Button>
+              <span className="text-[9px] font-bold text-gray-400">Day {currentStep}</span>
+            </div>
           </div>
         )}
         {allDone && (

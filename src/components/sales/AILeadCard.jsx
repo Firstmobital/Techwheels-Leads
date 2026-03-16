@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabaseApi } from '@/api/supabaseService';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { User, Phone, Car, MessageSquare, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { User, Phone, Car, MessageSquare, CheckCircle, ChevronDown, ChevronUp, PhoneCall } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { getNextFollowupStep } from '@/utils/sentMessageUtils';
+import { buildCallUrl, buildWhatsAppUrl } from '@/utils/phone';
 
 const STATUS_COLORS = {
   new: 'bg-blue-100 text-blue-700',
@@ -59,6 +60,8 @@ export default function AILeadCard({
 
   const resolvedMode = mode || (isAssigned ? 'assigned' : 'unassigned');
   const isAssignedMode = resolvedMode === 'assigned';
+  const whatsappUrl = buildWhatsAppUrl(resolvedPhoneNumber, '');
+  const callUrl = buildCallUrl(resolvedPhoneNumber);
 
   const normalizedStatus = normalizeStatus(lead?.opty_status);
   const rawStatus = String(lead?.opty_status ?? '').trim().toLowerCase();
@@ -189,7 +192,8 @@ export default function AILeadCard({
 
     const template = resolveTemplateForStep(stepKey);
     const messageText = template?.template_text || buildDefaultStepMessage(lead, stepKey);
-    const waLink = `https://wa.me/${String(resolvedPhoneNumber || '').replace(/\D/g, '')}?text=${encodeURIComponent(messageText)}`;
+    const waLink = buildWhatsAppUrl(resolvedPhoneNumber, messageText);
+    if (!waLink) return;
 
     try {
       if (typeof onMarkSent === 'function') {
@@ -205,6 +209,11 @@ export default function AILeadCard({
     } finally {
       window.open(waLink, '_blank', 'noopener,noreferrer');
     }
+  };
+
+  const openCall = () => {
+    if (!callUrl) return;
+    window.location.href = callUrl;
   };
 
   return (
@@ -275,7 +284,7 @@ export default function AILeadCard({
                     variant={stepAlreadySent ? 'outline' : 'default'}
                     className={`text-[11px] rounded-lg h-8 ${stepAlreadySent ? 'border-emerald-300 text-emerald-700 bg-emerald-50' : 'bg-purple-600 hover:bg-purple-700 text-white'}`}
                     onClick={() => openWhatsAppForStep(stepKey)}
-                    disabled={!resolvedPhoneNumber || !stepEnabled}
+                    disabled={!whatsappUrl || !stepEnabled}
                   >
                     {stepKey}
                   </Button>
@@ -285,6 +294,19 @@ export default function AILeadCard({
           )}
 
           <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-xs rounded-xl h-8 px-3"
+              onClick={openCall}
+              aria-label="Call"
+              title="Call"
+              disabled={!callUrl}
+            >
+              <PhoneCall className="w-3.5 h-3.5 mr-1" />
+              Call
+            </Button>
+
             <Button
               size="sm"
               variant="outline"

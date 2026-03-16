@@ -2,11 +2,14 @@ import { useState } from "react";
 import { supabaseApi } from "@/api/supabaseService";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { MessageSquare, Pencil, Check, X, User, Phone } from "lucide-react";
+import { MessageSquare, Pencil, Check, X, User, Phone, PhoneCall } from "lucide-react";
+import { buildCallUrl, buildWhatsAppUrl } from "@/utils/phone";
 
 export default function VanaLeadRow({ lead, onUpdate }) {
   const [editingNotes, setEditingNotes] = useState(false);
   const [notes, setNotes] = useState(lead.notes || "");
+  const whatsappUrl = buildWhatsAppUrl(lead.phone_number, "");
+  const callUrl = buildCallUrl(lead.phone_number);
 
   const saveNotes = async () => {
     await supabaseApi.entities.VanaLead.update(lead.id, { notes });
@@ -15,8 +18,13 @@ export default function VanaLeadRow({ lead, onUpdate }) {
   };
 
   const openWhatsApp = () => {
-    const phone = lead.phone_number?.replace(/\D/g, "");
-    window.open(`https://wa.me/${phone}`, "_blank");
+    if (!whatsappUrl) return;
+    window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+  };
+
+  const openCall = () => {
+    if (!callUrl) return;
+    window.location.href = callUrl;
   };
 
   const fields = [
@@ -71,13 +79,28 @@ export default function VanaLeadRow({ lead, onUpdate }) {
           </div>
         </div>
 
-        <Button
-          size="sm"
-          onClick={openWhatsApp}
-          className="bg-green-500 hover:bg-green-600 text-white rounded-xl h-10 w-10 p-0 flex-shrink-0 shadow"
-        >
-          <MessageSquare className="w-4 h-4" />
-        </Button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <Button
+            size="sm"
+            onClick={openCall}
+            className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 rounded-xl h-10 w-10 p-0 shadow"
+            aria-label="Call"
+            title="Call"
+            disabled={!callUrl}
+          >
+            <PhoneCall className="w-4 h-4" />
+          </Button>
+          <Button
+            size="sm"
+            onClick={openWhatsApp}
+            className="bg-green-500 hover:bg-green-600 text-white rounded-xl h-10 w-10 p-0 shadow"
+            aria-label="WhatsApp"
+            title="WhatsApp"
+            disabled={!whatsappUrl}
+          >
+            <MessageSquare className="w-4 h-4" />
+          </Button>
+        </div>
       </div>
     </div>
   );
