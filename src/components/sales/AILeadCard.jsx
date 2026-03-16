@@ -4,11 +4,13 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { User, Phone, Car, MessageSquare, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { getNextFollowupStep } from '@/utils/sentMessageUtils';
 
 const STATUS_COLORS = {
   new: 'bg-blue-100 text-blue-700',
   contacted: 'bg-yellow-100 text-yellow-700',
   interested: 'bg-green-100 text-green-700',
+  uninterested: 'bg-red-100 text-red-700',
   pending: 'bg-orange-100 text-orange-700',
   submitted: 'bg-indigo-100 text-indigo-700',
   closed: 'bg-gray-100 text-gray-500',
@@ -16,9 +18,12 @@ const STATUS_COLORS = {
 
 const STEP_KEYS = ['M1', 'M2', 'M3', 'M4'];
 
+const normalizeTemplateToken = (value) => String(value ?? '').trim().toLowerCase();
+const normalizeStepToken = (value) => String(value ?? '').trim().toUpperCase();
+
 const normalizeStatus = (value) => {
   const normalized = String(value ?? '').trim().toLowerCase();
-  const allowed = ['new', 'contacted', 'interested', 'pending', 'submitted', 'closed'];
+  const allowed = ['new', 'contacted', 'interested', 'uninterested', 'pending', 'submitted', 'closed'];
   return allowed.includes(normalized) ? normalized : 'new';
 };
 
@@ -35,6 +40,7 @@ export default function AILeadCard({
   mode,
   templates = [],
   onMarkSent,
+  sentMessages = [],
   sentCount = 0,
 }) {
   const queryClient = useQueryClient();
@@ -55,10 +61,13 @@ export default function AILeadCard({
   const isAssignedMode = resolvedMode === 'assigned';
 
   const normalizedStatus = normalizeStatus(lead?.opty_status);
+  const rawStatus = String(lead?.opty_status ?? '').trim().toLowerCase();
+  const isLeadClosedOrUninterested = rawStatus === 'closed' || rawStatus === 'uninterested' || normalizedStatus === 'closed' || normalizedStatus === 'uninterested';
   const hasRequestedGreenForm = Boolean(lead?.greenform_requested);
   const hasOptyId = Boolean(String(lead?.opty_id ?? '').trim());
   const laterStageStatuses = new Set(['submitted', 'closed']);
   const hasLaterStageProgress = hasOptyId && laterStageStatuses.has(normalizedStatus);
+  const assigneeDisplayName = lead?.employee_full_name || lead?.ca_name || (salespersonId ? String(salespersonId) : 'Unassigned');
 
   useEffect(() => {
     setShowUpdate(false);
@@ -84,9 +93,21 @@ export default function AILeadCard({
     return Math.max(0, Math.min(STEP_KEYS.length, safeCount));
   }, [sentCount]);
 
+  const followup = useMemo(() => {
+    return getNextFollowupStep(lead, sentMessages);
+  }, [lead, sentMessages]);
+
+  const nextFollowupLabel = useMemo(() => {
+    if (!isAssignedMode || followup.isCompleted || !followup.nextStep || !followup.dueDate) return null;
+    const dueDate = followup.dueDate;
+    if (!(dueDate instanceof Date) || Number.isNaN(dueDate.getTime())) return null;
+    return `${followup.nextStep} due ${dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+  }, [followup, isAssignedMode]);
+
   const takeMutation = useMutation({
     mutationFn: () => supabaseApi.entities.AILead.update(lead.id, {
       salesperson_id: currentEmployeeId,
+      assigned_at: new Date().toISOString(),
       opty_status: 'contacted',
     }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['ai-leads'] }),
@@ -120,15 +141,46 @@ export default function AILeadCard({
   });
 
   const resolveTemplateForStep = (stepKey) => {
-    const scoped = templates.filter((template) => {
-      const category = String(template?.category || '').trim().toLowerCase();
-      const isActive = template?.is_active !== false;
-      return isActive && (category === 'ai' || category === 'all' || category === 'general');
-    });
+    const normalizedStep = normalizeStepToken(stepKey);
+    const normalizedSource = normalizeTemplateToken(lead?.source ?? lead?.source_type ?? 'ai');
+    const normalizedLeadModel = normalizeTemplateToken(lead?.model_name ?? lead?.car_model ?? lead?.ppl ?? '');
+    const safeTemplates = Array.isArray(templates)
+      ? templates.filter((template) => template?.is_active !== false)
+      : [];
 
-    return scoped.find((template) => {
-      const name = String(template?.name || '').trim().toLowerCase();
-      return name.includes(stepKey.toLowerCase());
+    // Priority 1: exact source + model_name + step.
+    const exactMatch = safeTemplates.find((template) => {
+      const templateSource = normalizeTemplateToken(template?.source ?? template?.category);
+      const templateStep = normalizeStepToken(template?.step);
+      const templateModel = normalizeTemplateToken(template?.model_name);
+      return (
+        templateSource === normalizedSource &&
+        templateStep === normalizedStep &&
+        templateModel &&
+        normalizedLeadModel &&
+        templateModel === normalizedLeadModel
+      );
+    });
+    if (exactMatch) return exactMatch;
+
+    // Priority 2: source + NULL model_name + step.
+    const fallbackMatch = safeTemplates.find((template) => {
+      const templateSource = normalizeTemplateToken(template?.source ?? template?.category);
+      const templateStep = normalizeStepToken(template?.step);
+      const rawModel = template?.model_name;
+      const isNullModel = rawModel === null || rawModel === undefined || String(rawModel).trim() === '';
+      return templateSource === normalizedSource && templateStep === normalizedStep && isNullModel;
+    });
+    if (fallbackMatch) return fallbackMatch;
+
+    // Legacy compatibility for older template rows during transition.
+    const legacyScoped = safeTemplates.filter((template) => {
+      const category = normalizeTemplateToken(template?.category);
+      return category === normalizedSource || category === 'all' || category === 'general';
+    });
+    return legacyScoped.find((template) => {
+      const name = normalizeTemplateToken(template?.name);
+      return name.includes(normalizeTemplateToken(stepKey));
     }) || null;
   };
 
@@ -198,16 +250,23 @@ export default function AILeadCard({
         {isAssigned && (
           <div className="mt-2 flex items-center gap-1 text-[10px] text-gray-500">
             <CheckCircle className="w-3 h-3 text-green-500" />
-            <span>Assigned to {isAdmin ? salespersonId || 'Unassigned' : 'you'}</span>
+            <span>Assigned to {isAdmin ? assigneeDisplayName : 'you'}</span>
+          </div>
+        )}
+
+        {nextFollowupLabel && (
+          <div className="mt-2 text-[11px] text-gray-500">
+            <div className="font-medium text-gray-600">Next Follow-up</div>
+            <div>{nextFollowupLabel}</div>
           </div>
         )}
 
         <div className="mt-3 space-y-2">
-          {isAssignedMode && (
+          {isAssignedMode && !isLeadClosedOrUninterested && (
             <div className="grid grid-cols-4 gap-1.5">
               {STEP_KEYS.map((stepKey, index) => {
                 const stepAlreadySent = index < activeStepLimit;
-                const stepEnabled = index === activeStepLimit;
+                const stepEnabled = !stepAlreadySent && followup.nextStep === stepKey && followup.isDueNow;
 
                 return (
                   <Button

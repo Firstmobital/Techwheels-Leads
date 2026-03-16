@@ -1,4 +1,11 @@
 const VALID_LEAD_SOURCES = new Set(['walkin', 'ivr', 'ai']);
+const AI_FOLLOWUP_STEPS = ['M1', 'M2', 'M3', 'M4'];
+const AI_FOLLOWUP_DAY_OFFSETS = {
+  M1: 1,
+  M2: 2,
+  M3: 5,
+  M4: 10,
+};
 
 const TAB_TO_DEFAULT_SOURCE = {
   ai_leads: 'ai',
@@ -67,4 +74,64 @@ export const matchesSentMessageToLead = (row, lead, leadType) => {
   const leadKey = getSentMessageKeyForLead(lead, leadType);
   if (!rowKey || !leadKey) return false;
   return rowKey === leadKey;
+};
+
+const isValidDate = (value) => {
+  return value instanceof Date && !Number.isNaN(value.getTime());
+};
+
+const toStartOfDay = (value) => {
+  const date = value instanceof Date ? new Date(value) : new Date(value);
+  if (!isValidDate(date)) return null;
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const addDays = (date, days) => {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+};
+
+export const getNextFollowupStep = (lead, sentMessages) => {
+  const messages = Array.isArray(sentMessages) ? sentMessages : [];
+  const leadMessages = messages.filter((row) => matchesSentMessageToLead(row, lead, 'ai_leads'));
+  const completedCount = Math.max(0, Math.min(AI_FOLLOWUP_STEPS.length, leadMessages.length));
+
+  if (completedCount >= AI_FOLLOWUP_STEPS.length) {
+    return {
+      nextStep: null,
+      dueDate: null,
+      isDueToday: false,
+      isDueNow: false,
+      isCompleted: true,
+    };
+  }
+
+  const nextStep = AI_FOLLOWUP_STEPS[completedCount];
+  const offsetDays = AI_FOLLOWUP_DAY_OFFSETS[nextStep];
+  const assignedAtDay = toStartOfDay(lead?.assigned_at);
+
+  if (!assignedAtDay) {
+    return {
+      nextStep,
+      dueDate: null,
+      isDueToday: false,
+      isDueNow: false,
+      isCompleted: false,
+    };
+  }
+
+  const dueDate = addDays(assignedAtDay, offsetDays);
+  const today = toStartOfDay(new Date());
+  const isDueToday = Boolean(today && dueDate.getTime() === today.getTime());
+  const isDueNow = Boolean(today && dueDate.getTime() <= today.getTime());
+
+  return {
+    nextStep,
+    dueDate,
+    isDueToday,
+    isDueNow,
+    isCompleted: false,
+  };
 };

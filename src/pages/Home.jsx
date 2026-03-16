@@ -11,6 +11,7 @@ import {
   getLeadSourceForType,
   getSourceRecordIdForLead,
   getSentMessageKeyForRow,
+  getNextFollowupStep,
 } from '@/utils/sentMessageUtils';
 
 const isAdminUser = (user) => {
@@ -229,8 +230,11 @@ export default function Home() {
     const followUpNotPending = [];
 
     assigned.forEach((lead) => {
-      const sentCount = aiSentCountByLeadId.get(String(lead?.id ?? '')) ?? 0;
-      if (sentCount < 4) {
+      const followup = getNextFollowupStep(lead, sentMessages);
+      const hasAssignedAt = Boolean(lead?.assigned_at);
+      const isPendingNow = hasAssignedAt && followup.nextStep !== null && !followup.isCompleted && followup.isDueNow;
+
+      if (isPendingNow) {
         followUpPendingToday.push(lead);
       } else {
         followUpNotPending.push(lead);
@@ -243,7 +247,7 @@ export default function Home() {
       followUpPendingToday,
       followUpNotPending,
     };
-  }, [filteredAILeads, aiSentCountByLeadId]);
+  }, [filteredAILeads, sentMessages]);
 
   const tabData = {
     vana: { leads: filterLeads(vanaLeads, 'vana'), loading: vanaLoading, refreshKey: 'vna-stock' },
@@ -353,6 +357,7 @@ export default function Home() {
                         mode="unassigned"
                         templates={allTemplates}
                         onMarkSent={handleMarkSent}
+                        sentMessages={sentMessages}
                         sentCount={aiSentCountByLeadId.get(String(lead?.id ?? '')) ?? 0}
                       />
                     ))
@@ -378,6 +383,7 @@ export default function Home() {
                             mode="assigned"
                             templates={allTemplates}
                             onMarkSent={handleMarkSent}
+                            sentMessages={sentMessages}
                             sentCount={aiSentCountByLeadId.get(String(lead?.id ?? '')) ?? 0}
                           />
                         ))
@@ -403,6 +409,7 @@ export default function Home() {
                             mode="assigned"
                             templates={allTemplates}
                             onMarkSent={handleMarkSent}
+                            sentMessages={sentMessages}
                             sentCount={aiSentCountByLeadId.get(String(lead?.id ?? '')) ?? 0}
                           />
                         ))
