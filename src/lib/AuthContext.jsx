@@ -1,28 +1,6 @@
 import React, { createContext, useState, useContext, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/api/supabaseClient';
 
-const AUTH_REQUEST_TIMEOUT_MS = 60000;
-const HYDRATION_TIMEOUT_MS = 60000;
-
-const withTimeout = async (promise, timeoutMs = AUTH_REQUEST_TIMEOUT_MS, errorMessage = 'Request timed out') => {
-  let timeoutId;
-
-  const timeoutPromise = new Promise((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
-  });
-
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    clearTimeout(timeoutId);
-  }
-};
-
-const isTimeoutError = (error) => {
-  const message = String(error?.message || '').trim().toLowerCase();
-  return message.includes('timed out');
-};
-
 const defaultAuthContextValue = {
   user: null,
   isAuthenticated: false,
@@ -65,7 +43,7 @@ const buildNormalizedUser = ({ authUser, employee, role }) => {
     id: employee?.id ?? authUser?.id ?? null,
     full_name: fullName,
     role: normalizeRoleValue(roleCode, roleName),
-    is_super_admin: Boolean(employee?.is_super_admin)
+    is_super_admin: Boolean(employee?.is_super_admin),
   };
 };
 
@@ -78,28 +56,17 @@ export const AuthProvider = ({ children }) => {
   const hydrationInFlightRef = useRef(new Map());
   const latestRequestedAuthUserIdRef = useRef(null);
   const hydratedAuthUserIdRef = useRef(null);
-  const hasLoggedSessionTimeoutRef = useRef(false);
-  const hasLoggedEmployeeTimeoutRef = useRef(false);
 
   const setUnauthenticatedState = useCallback(() => {
     latestRequestedAuthUserIdRef.current = null;
+    hydratedAuthUserIdRef.current = null;
     setUser(null);
     setIsAuthenticated(false);
     setAuthError({ type: 'auth_required', message: 'Authentication required' });
     setIsLoadingAuth(false);
   }, []);
 
-  const logAuthError = useCallback((label, error, options = {}) => {
-    const suppressTimeoutRef = options?.suppressTimeoutRef;
-
-    if (isTimeoutError(error) && suppressTimeoutRef) {
-      if (!suppressTimeoutRef.current) {
-        console.warn(label, error);
-        suppressTimeoutRef.current = true;
-      }
-      return;
-    }
-
+  const logAuthError = useCallback((label, error) => {
     console.error(label, error);
   }, []);
 
@@ -121,19 +88,15 @@ export const AuthProvider = ({ children }) => {
       const fallbackUser = buildNormalizedUser({
         authUser,
         employee: null,
-        role: null
+        role: null,
       });
 
       try {
-        const { data: employee, error: employeeError } = await withTimeout(
-          supabase
-            .from('employees')
-            .select('id, auth_user_id, role_id, location_id, first_name, last_name, email, is_super_admin')
-            .eq('auth_user_id', authUser.id)
-            .maybeSingle(),
-          HYDRATION_TIMEOUT_MS,
-          'Employee lookup timed out'
-        );
+        const { data: employee, error: employeeError } = await supabase
+          .from('employees')
+          .select('id, auth_user_id, role_id, location_id, first_name, last_name, email, is_super_admin')
+          .eq('auth_user_id', authUser.id)
+          .maybeSingle();
 
         if (latestRequestedAuthUserIdRef.current !== authUserId) {
           return null;
@@ -149,15 +112,11 @@ export const AuthProvider = ({ children }) => {
 
         let role = null;
         if (employee?.role_id) {
-          const { data: roleData, error: roleError } = await withTimeout(
-            supabase
-              .from('roles')
-              .select('id, name, code')
-              .eq('id', employee.role_id)
-              .maybeSingle(),
-            HYDRATION_TIMEOUT_MS,
-            'Role lookup timed out'
-          );
+          const { data: roleData, error: roleError } = await supabase
+            .from('roles')
+            .select('id, name, code')
+            .eq('id', employee.role_id)
+            .maybeSingle();
 
           if (roleError) {
             logAuthError('Failed to load role for employee:', roleError);
@@ -180,9 +139,7 @@ export const AuthProvider = ({ children }) => {
           return null;
         }
 
-        logAuthError('Failed to hydrate auth user:', error, {
-          suppressTimeoutRef: hasLoggedEmployeeTimeoutRef
-        });
+        logAuthError('Failed to hydrate auth user:', error);
         setUser(fallbackUser);
         setIsAuthenticated(true);
         setAuthError(null);
@@ -204,11 +161,7 @@ export const AuthProvider = ({ children }) => {
       setIsLoadingAuth(true);
       setAuthError(null);
 
-      const { data, error } = await withTimeout(
-        supabase.auth.getSession(),
-        HYDRATION_TIMEOUT_MS,
-        'Session check timed out'
-      );
+      const { data, error } = await supabase.auth.getSession();
 
       if (error) throw error;
 
@@ -220,9 +173,7 @@ export const AuthProvider = ({ children }) => {
 
       await hydrateUser(session.user);
     } catch (error) {
-      logAuthError('Session check failed:', error, {
-        suppressTimeoutRef: hasLoggedSessionTimeoutRef
-      });
+      logAuthError('Session check failed:', error);
       setAuthError(null);
       setIsLoadingAuth(false);
     }
@@ -243,11 +194,13 @@ export const AuthProvider = ({ children }) => {
 
       const nextAuthUserId = String(session.user.id);
       const currentHydratedAuthUserId = hydratedAuthUserIdRef.current;
-      const shouldShowLoading = !currentHydratedAuthUserId || currentHydratedAuthUserId !== nextAuthUserId;
+      const shouldShowLoading =
+        !currentHydratedAuthUserId || currentHydratedAuthUserId !== nextAuthUserId;
 
       if (shouldShowLoading) {
         setIsLoadingAuth(true);
       }
+
       setAuthError(null);
       await hydrateUser(session.user);
     });
@@ -293,8 +246,9 @@ export const AuthProvider = ({ children }) => {
 
     const authUser = {
       id: user?.authUserId ?? null,
-      email: user?.email ?? null
+      email: user?.email ?? null,
     };
+
     const nextUser = buildNormalizedUser({ authUser, employee, role });
     setUser(nextUser);
     return nextUser;
@@ -313,6 +267,7 @@ export const AuthProvider = ({ children }) => {
 
   const navigateToLogin = () => {
     if (typeof window === 'undefined') return;
+
     const loginPath = import.meta.env.VITE_LOGIN_PATH || '/login';
     const normalizedPath = loginPath.startsWith('/') ? loginPath : `/${loginPath}`;
     const currentPath = window.location.pathname;
@@ -324,16 +279,18 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{
-      user,
-      isAuthenticated,
-      isLoadingAuth,
-      authError,
-      logout,
-      navigateToLogin,
-      checkSession,
-      updateProfile
-    }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isAuthenticated,
+        isLoadingAuth,
+        authError,
+        logout,
+        navigateToLogin,
+        checkSession,
+        updateProfile,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
