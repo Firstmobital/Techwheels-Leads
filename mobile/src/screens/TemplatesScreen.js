@@ -25,6 +25,8 @@ const toInt = (value, fallback) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const toDayValue = (value) => Math.max(0, toInt(value, 0));
+
 export default function TemplatesScreen() {
   const [templates, setTemplates] = useState([]);
   const [filterSource, setFilterSource] = useState("all");
@@ -57,6 +59,8 @@ export default function TemplatesScreen() {
       return filterSource === "all" || source === filterSource;
     });
   }, [templates, filterSource]);
+
+  const dayPreview = useMemo(() => `Day ${toDayValue(form.delay_days)}`, [form.delay_days]);
 
   const resetForm = () => {
     setForm(EMPTY_FORM);
@@ -241,7 +245,7 @@ export default function TemplatesScreen() {
 
             <TextInput
               style={styles.input}
-              placeholder="Step number"
+              placeholder="Sequence order (e.g. 1, 2, 3)"
               keyboardType="number-pad"
               value={form.step_number}
               onChangeText={(value) => setForm((prev) => ({ ...prev, step_number: value }))}
@@ -249,11 +253,14 @@ export default function TemplatesScreen() {
 
             <TextInput
               style={styles.input}
-              placeholder="Delay days"
+              placeholder="Day"
               keyboardType="number-pad"
               value={form.delay_days}
               onChangeText={(value) => setForm((prev) => ({ ...prev, delay_days: value }))}
             />
+
+            <Text style={styles.helperText}>Day (Example: 1, 3, 5) · {dayPreview}</Text>
+            <Text style={styles.helperText}>Step number controls send order.</Text>
 
             <Pressable
               style={[styles.filterPill, form.is_active && styles.filterPillActive]}
@@ -305,7 +312,7 @@ export default function TemplatesScreen() {
             <Text style={styles.meta}>
               Source: {template.source ? String(template.source).toUpperCase() : "-"} | Category: {template.category || "vana"} | Model: {template.model_name || "-"}
             </Text>
-            <Text style={styles.meta}>Follow-up: step {template.step_number ?? 1} after {template.delay_days ?? 0} day(s)</Text>
+            <Text style={styles.meta}>Follow-up: Day {template.delay_days ?? 0} · Step {template.step_number ?? 1}</Text>
             <Text style={styles.meta}>Status: {template.is_active === false ? "inactive" : "active"}</Text>
             <Text style={styles.messagePreview}>{template.template_text || ""}</Text>
           </View>
@@ -460,6 +467,11 @@ const styles = StyleSheet.create({
   meta: {
     fontSize: 11,
     color: "#64748b",
+  },
+  helperText: {
+    fontSize: 11,
+    color: "#64748b",
+    marginTop: -2,
   },
   messagePreview: {
     fontSize: 12,

@@ -1,7 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { MessageCircle, CheckCircle2, Car, Phone, User, Clock, PhoneCall } from 'lucide-react';
 import { Button } from "@/components/ui/button";
-import { Drawer, DrawerContent, DrawerTrigger } from "@/components/ui/drawer";
 import { cn } from "@/lib/utils";
 import { differenceInDays } from 'date-fns';
 import { getNormalizedLead } from './leadDataHelper';
@@ -9,9 +8,6 @@ import { matchesSentMessageToLead } from '@/utils/sentMessageUtils';
 import { buildCallUrl, buildWhatsAppUrl } from '@/utils/phone';
 
 const UIButton = /** @type {any} */ (Button);
-const UIDrawer = /** @type {any} */ (Drawer);
-const UIDrawerTrigger = /** @type {any} */ (DrawerTrigger);
-const UIDrawerContent = /** @type {any} */ (DrawerContent);
 
 // Legacy day-based follow-up sequence (used when templates don't define delay/step).
 const FOLLOW_UP_DAYS = [1, 2, 5];
@@ -112,8 +108,8 @@ function getNextDueStep(history, tab, sequenceTemplates = []) {
 }
 
 export default function LeadCard({ lead, tab, accentColor, message, isSent, onMarkSent, templates, sentMessages = [] }) {
-   const [selectedTemplateId, setSelectedTemplateId] = useState('default');
-   const normalizedLead = getNormalizedLead(lead);
+  const normalizedLead = getNormalizedLead(lead);
+  const isTemplateDrivenTab = tab === 'vana' || tab === 'matchtalk' || tab === 'greenforms';
   const isGreenForms = tab === 'greenforms';
   const resolvedPhone = isGreenForms
     ? (normalizedLead.mobile_number || normalizedLead.phone_number || '')
@@ -152,8 +148,8 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
   }, [relevantTemplates]);
 
   const historyForLead = sentMessages.filter((row) => matchesSentMessageToLead(row, lead, tab));
-   const nextDue = getNextDueStep(historyForLead, tab, sequenceTemplates);
-   const allDone = !nextDue;
+    const nextDue = getNextDueStep(historyForLead, tab, sequenceTemplates);
+    const allDone = !nextDue;
 
    // For current step, pick the right message
    const stepMessages = FOLLOW_UP_MESSAGES[tab] || FOLLOW_UP_MESSAGES.greenforms;
@@ -182,30 +178,52 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
     ? fillPlaceholders(dbStepTemplate.template_text)
     : defaultMessage;
 
-  const activeMessage = selectedTemplateId === 'default'
-    ? resolvedDefault
-    : (() => {
-        const t = templates?.find(t => t.id === selectedTemplateId);
-        if (!t) return resolvedDefault;
-        return fillPlaceholders(t.template_text);
-      })();
-
-  const waLink = buildWhatsAppUrl(resolvedPhone, activeMessage);
+  const waLink = buildWhatsAppUrl(resolvedPhone, resolvedDefault);
   const callLink = buildCallUrl(resolvedPhone);
 
-  // Templates are now pure text; no attachment field in operational schema.
-  const activeTemplateObj = selectedTemplateId === 'default'
-    ? dbStepTemplate
-    : templates?.find(t => t.id === selectedTemplateId);
+  const templateButtons = useMemo(() => {
+    if (!isTemplateDrivenTab) return [];
 
-  const handleSend = () => {
-    if (!waLink) return;
-    window.open(waLink, '_blank', 'noopener,noreferrer');
+    const withOrder = relevantTemplates
+      .map((template, index) => {
+        const stepNumber = toInt(template?.step_number, Number.NaN);
+        const delayDays = toInt(template?.delay_days, Number.NaN);
+        return {
+          template,
+          index,
+          stepNumber: Number.isFinite(stepNumber) ? Math.max(1, stepNumber) : Number.POSITIVE_INFINITY,
+          delayDays: Number.isFinite(delayDays) ? Math.max(0, delayDays) : Number.POSITIVE_INFINITY,
+        };
+      })
+      .sort((a, b) => {
+        if (a.stepNumber !== b.stepNumber) return a.stepNumber - b.stepNumber;
+        if (a.delayDays !== b.delayDays) return a.delayDays - b.delayDays;
+        const aName = String(a.template?.name ?? '').trim().toLowerCase();
+        const bName = String(b.template?.name ?? '').trim().toLowerCase();
+        if (aName && bName && aName !== bName) return aName.localeCompare(bName);
+        return a.index - b.index;
+      });
+
+    return withOrder.map(({ template }, index) => {
+      const label = `M${index + 1}`;
+
+      return {
+        template,
+        label,
+        messageText: fillPlaceholders(template?.template_text || ''),
+      };
+    });
+  }, [isTemplateDrivenTab, relevantTemplates, fillPlaceholders]);
+
+  const handleSend = (messageText, template) => {
+    const sendLink = buildWhatsAppUrl(resolvedPhone, messageText);
+    if (!sendLink) return;
+    window.open(sendLink, '_blank', 'noopener,noreferrer');
     onMarkSent({
       lead,
       leadType: tab,
-      messageText: activeMessage,
-      templateId: activeTemplateObj?.id ?? null,
+      messageText,
+      templateId: template?.id ?? null,
     });
   };
 
@@ -360,51 +378,9 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
                 </span>
               )}
             </div>
-
-            {relevantTemplates.length > 0 && !allDone && (
-              <div className="mt-2">
-                <UIDrawer>
-                  <UIDrawerTrigger asChild>
-                    <UIButton variant="outline" className="w-full h-7 text-[11px] rounded-lg border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 dark:text-gray-100 justify-start">
-                      {selectedTemplateId === 'default' && dbStepTemplate ? `📋 ${dbStepTemplate.name}` : `Default (${dueLabel} ${currentStep})`}
-                    </UIButton>
-                  </UIDrawerTrigger>
-                  <UIDrawerContent>
-                    <div className="p-4 space-y-2">
-                      <h3 className="font-semibold text-sm text-gray-900 dark:text-white">Select Template</h3>
-                      <button
-                        onClick={() => setSelectedTemplateId('default')}
-                        className={`w-full text-left py-2 px-3 rounded-lg text-xs font-medium transition-all ${
-                          selectedTemplateId === 'default'
-                            ? 'bg-gray-900 dark:bg-gray-700 text-white'
-                            : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200'
-                        }`}
-                      >
-                        {dbStepTemplate ? `📋 ${dbStepTemplate.name}` : `Default (${dueLabel} ${currentStep})`}
-                      </button>
-                      {relevantTemplates
-                        .filter(t => t.id !== dbStepTemplate?.id)
-                        .map(t => (
-                          <button
-                            key={t.id}
-                            onClick={() => setSelectedTemplateId(t.id)}
-                            className={`w-full text-left py-2 px-3 rounded-lg text-xs font-medium transition-all ${
-                              selectedTemplateId === t.id
-                                ? 'bg-gray-900 dark:bg-gray-700 text-white'
-                                : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200'
-                            }`}
-                          >
-                            {t.name}
-                          </button>
-                        ))}
-                    </div>
-                  </UIDrawerContent>
-                </UIDrawer>
-              </div>
-            )}
           </div>
         </div>
-        {!allDone && (
+        {((!isTemplateDrivenTab && !allDone) || isTemplateDrivenTab) && (
           <div className="flex items-start gap-2 flex-shrink-0">
             <UIButton
               onClick={handleCall}
@@ -416,22 +392,39 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
             >
               <PhoneCall className="w-5 h-5" />
             </UIButton>
-            <div className="flex flex-col items-center gap-1">
-              <UIButton
-                onClick={handleSend}
-                className={cn(
-                  "rounded-xl h-12 w-12 p-0 shadow-lg",
-                  nextDue?.overdue ? "bg-orange-500 hover:bg-orange-600" : accentColor
-                )}
-                disabled={!waLink}
-              >
-                <MessageCircle className="w-5 h-5" />
-              </UIButton>
-              <span className="text-[9px] font-bold text-gray-400">{dueLabel} {currentStep}</span>
-            </div>
+
+            {isTemplateDrivenTab ? (
+              <div className="grid grid-cols-2 gap-1.5 min-w-[120px]">
+                {templateButtons.map(({ template, label, messageText }) => (
+                  <UIButton
+                    key={template.id || label}
+                    onClick={() => handleSend(messageText, template)}
+                    className="rounded-lg h-9 px-2 text-[11px] font-semibold shadow-sm bg-green-600 hover:bg-green-700 text-white"
+                    disabled={!buildWhatsAppUrl(resolvedPhone, messageText)}
+                    title={label}
+                  >
+                    {label}
+                  </UIButton>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-1">
+                <UIButton
+                  onClick={() => handleSend(resolvedDefault, dbStepTemplate)}
+                  className={cn(
+                    "rounded-xl h-12 w-12 p-0 shadow-lg",
+                    nextDue?.overdue ? "bg-orange-500 hover:bg-orange-600" : accentColor
+                  )}
+                  disabled={!waLink}
+                >
+                  <MessageCircle className="w-5 h-5" />
+                </UIButton>
+                <span className="text-[9px] font-bold text-gray-400">{dueLabel} {currentStep}</span>
+              </div>
+            )}
           </div>
         )}
-        {allDone && (
+        {!isTemplateDrivenTab && allDone && (
           <div className="h-12 w-12 flex items-center justify-center flex-shrink-0">
             <CheckCircle2 className="w-7 h-7 text-emerald-400" />
           </div>

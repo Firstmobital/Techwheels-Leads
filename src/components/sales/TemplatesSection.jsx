@@ -35,6 +35,8 @@ const toInteger = (value, fallback) => {
   return parsed;
 };
 
+const toDayValue = (value) => Math.max(0, toInteger(value, 0));
+
 const normalizeTemplatePayload = (form) => ({
   name: String(form.name || '').trim(),
   source: String(form.source || '').trim() || null,
@@ -134,6 +136,10 @@ export default function TemplatesSection() {
       return bTime - aTime;
     });
   }, [templates, filterSource]);
+
+  const dayPreview = useMemo(() => {
+    return `Day ${toDayValue(form.delay_days)}`;
+  }, [form.delay_days]);
 
   return (
     <div className="flex-1 overflow-y-auto px-4 pb-24 pt-3 space-y-4 dark:bg-gray-900">
@@ -236,7 +242,7 @@ export default function TemplatesSection() {
                   type="number"
                   min="1"
                   step="1"
-                  placeholder="Step number"
+                  placeholder="Sequence order (e.g. 1, 2, 3)"
                   value={form.step_number}
                   onChange={(e) => setForm({ ...form, step_number: e.target.value })}
                   className="h-9 text-sm rounded-xl"
@@ -245,11 +251,17 @@ export default function TemplatesSection() {
                   type="number"
                   min="0"
                   step="1"
-                  placeholder="Delay days"
+                  placeholder="Day"
                   value={form.delay_days}
                   onChange={(e) => setForm({ ...form, delay_days: e.target.value })}
                   className="h-9 text-sm rounded-xl"
                 />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-500 dark:text-gray-300">
+                <span>Day (Example: 1, 3, 5)</span>
+                <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">{dayPreview}</span>
+                <span>Step number controls send order.</span>
               </div>
 
               <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
@@ -292,7 +304,7 @@ export default function TemplatesSection() {
                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-100 text-violet-700">{template.category || 'vana'}</span>
                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">{template.model_name || 'all models'}</span>
                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{template.step || 'any step'}</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">S{template.step_number ?? 1} / +{template.delay_days ?? 0}d</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Day {template.delay_days ?? 0} · S{template.step_number ?? 1}</span>
                         <span className={cn(
                           'text-[10px] px-2 py-0.5 rounded-full',
                           template.is_active === false ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
