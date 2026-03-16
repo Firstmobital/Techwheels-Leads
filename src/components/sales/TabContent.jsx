@@ -99,7 +99,7 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
       const resolvedSalesTeam = leadData.sales_team || '';
       const resolvedChassisNo = leadData.chassis_no || '';
       const normalizedSearch = search.toLowerCase();
-      const resolvedVnaModel = leadData.car_model || leadData.ppl || '';
+      const resolvedStockModel = leadData.product_line || leadData.car_model || leadData.ppl || '';
       const resolvedVnaAllocation = String(leadData.allocation_status || leadData.status || '').trim().toLowerCase();
       const resolvedGreenFormModel = leadData.model_name || leadData.car_model || leadData.ppl;
       const resolvedGreenFormSource = leadData.source_type || leadData.source_pv || '';
@@ -110,9 +110,9 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
         String(resolvedProductLine).toLowerCase().includes(normalizedSearch) ||
         String(resolvedSalesTeam).toLowerCase().includes(normalizedSearch);
       const matchCar = carFilter === 'all' || (tab === 'matchtalk'
-        ? leadData.ppl === carFilter
+        ? resolvedStockModel === carFilter
         : tab === 'vana'
-          ? resolvedVnaModel === carFilter
+          ? resolvedStockModel === carFilter
         : tab === 'greenforms'
           ? resolvedGreenFormModel === carFilter
           : leadData.car_model === carFilter);
