@@ -3,23 +3,15 @@ import { supabaseApi } from '@/api/supabaseService';
 import { useQuery } from '@tanstack/react-query';
 import { BarChart2, CheckCircle2, RefreshCw, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useAuth } from '@/lib/AuthContext';
+import { useCurrentUser } from '@/lib/CurrentUserContext';
+import { isAdminUser } from '@/lib/authUserUtils';
 
 const SUCCESS_STATUSES = new Set(['sent']);
-
-const isAdminUser = (user) => {
-  if (!user) return false;
-  if (user.isSuperAdmin === true || user.is_super_admin === true) return true;
-  const roleCode = String(user.roleCode || '').trim().toLowerCase();
-  const roleName = String(user.roleName || '').trim().toLowerCase();
-  const role = String(user.role || '').trim().toLowerCase();
-  return roleCode === 'admin' || roleName === 'admin' || role === 'admin';
-};
 
 // Templates moved to Home dashboard
 export default function Report() {
   const today = new Date().toISOString().split('T')[0];
-  const { user: currentUser } = useAuth();
+  const { currentUser, isLoadingProfile } = useCurrentUser();
 
   const isAdmin = isAdminUser(currentUser);
 
@@ -205,6 +197,12 @@ export default function Report() {
       </div>
 
       <div className="p-4 space-y-4 pb-24">
+        {isLoadingProfile && !currentUser ? (
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-sm text-gray-500">
+            Loading your profile...
+          </div>
+        ) : null}
+
         {/* Summary Cards */}
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-white rounded-2xl p-3 shadow-sm border border-gray-100 text-center">

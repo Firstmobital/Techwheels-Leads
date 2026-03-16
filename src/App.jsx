@@ -6,6 +6,7 @@ import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-d
 import PageNotFound from './lib/PageNotFound';
 import Login from './pages/Login';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
+import { CurrentUserProvider } from '@/lib/CurrentUserContext';
 
 const { Pages, Layout, mainPage, routes = [] } = pagesConfig;
 const mainPageKey = mainPage ?? Object.keys(Pages)[0];
@@ -80,12 +81,14 @@ function App() {
 
   return (
     <AuthProvider>
-      <QueryClientProvider client={queryClientInstance}>
-        <Router future={{ v7_startTransition: true, v7_relativeSplitPath: true }}>
-          <AuthenticatedApp />
-        </Router>
-        <Toaster />
-      </QueryClientProvider>
+      <CurrentUserProvider>
+        <QueryClientProvider client={queryClientInstance}>
+          <Router future={{ v7_startTransition: true, v7_relativeSplitPath: true }}>
+            <AuthenticatedApp />
+          </Router>
+          <Toaster />
+        </QueryClientProvider>
+      </CurrentUserProvider>
     </AuthProvider>
   )
 }

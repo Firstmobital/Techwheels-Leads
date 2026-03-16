@@ -7,21 +7,14 @@ import TabContent from '../components/sales/TabContent';
 import TemplatesSection from '../components/sales/TemplatesSection';
 import AILeadCard from '../components/sales/AILeadCard';
 import { useAuth } from '@/lib/AuthContext';
+import { useCurrentUser } from '@/lib/CurrentUserContext';
+import { isAdminUser } from '@/lib/authUserUtils';
 import {
   getLeadSourceForType,
   getSourceRecordIdForLead,
   getSentMessageKeyForRow,
   getNextFollowupStep,
 } from '@/utils/sentMessageUtils';
-
-const isAdminUser = (user) => {
-  if (!user) return false;
-  if (user.isSuperAdmin === true || user.is_super_admin === true) return true;
-  const roleCode = String(user.roleCode || '').trim().toLowerCase();
-  const roleName = String(user.roleName || '').trim().toLowerCase();
-  const role = String(user.role || '').trim().toLowerCase();
-  return roleCode === 'admin' || roleName === 'admin' || role === 'admin';
-};
 
 const LEAD_TABS = [
   { id: 'vana', label: 'VNA Next Allocation', icon: CarFront, color: 'bg-amber-500 hover:bg-amber-600', entity: 'VNAStock' },
@@ -44,7 +37,8 @@ const MESSAGES = {
 export default function Home() {
   const [activeTab, setActiveTab] = useState('vana');
   const [aiLeadsView, setAiLeadsView] = useState('assigned');
-  const { user: currentUser, isLoadingAuth } = useAuth();
+  const { isLoadingAuth } = useAuth();
+  const { currentUser, isLoadingProfile } = useCurrentUser();
   const queryClient = useQueryClient();
 
   const isAdmin = isAdminUser(currentUser);
@@ -306,7 +300,13 @@ export default function Home() {
 
       {/* Content */}
       <div className="flex-1 overflow-hidden">
-        {isTemplatesTab ? (
+        {isLoadingProfile && !currentUser ? (
+          <div className="h-full overflow-y-auto p-4 pb-24">
+            <div className="rounded-2xl border border-gray-200 bg-white p-4 text-sm text-gray-500">
+              Loading your profile...
+            </div>
+          </div>
+        ) : isTemplatesTab ? (
           <TemplatesSection />
         ) : isAILeadsTab ? (
           <div className="h-full overflow-y-auto p-4 pb-24">

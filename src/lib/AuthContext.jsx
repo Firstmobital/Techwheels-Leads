@@ -1,7 +1,9 @@
-import React, { createContext, useState, useContext, useEffect, useRef, useCallback } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { supabase } from '@/api/supabaseClient';
 
 const defaultAuthContextValue = {
+  authUser: null,
+  session: null,
   user: null,
   isAuthenticated: false,
   isLoadingAuth: true,
@@ -14,53 +16,16 @@ const defaultAuthContextValue = {
 
 const AuthContext = createContext(defaultAuthContextValue);
 
-const normalizeRoleValue = (roleCode, roleName) => {
-  const raw = String(roleCode || roleName || '').trim();
-  return raw ? raw.toLowerCase() : null;
-};
-
-const buildNormalizedUser = ({ authUser, employee, role }) => {
-  const firstName = employee?.first_name ?? null;
-  const lastName = employee?.last_name ?? null;
-  const fullName = [firstName, lastName].filter(Boolean).join(' ').trim() || null;
-  const roleCode = role?.code ?? null;
-  const roleName = role?.name ?? null;
-
-  return {
-    employeeId: employee?.id ?? null,
-    authUserId: authUser?.id ?? null,
-    email: employee?.email ?? authUser?.email ?? null,
-    firstName,
-    lastName,
-    fullName,
-    roleId: employee?.role_id ?? null,
-    roleName,
-    roleCode,
-    isSuperAdmin: Boolean(employee?.is_super_admin),
-    locationId: employee?.location_id ?? null,
-
-    // Compatibility fields for existing web screens during Phase 1.
-    id: employee?.id ?? authUser?.id ?? null,
-    full_name: fullName,
-    role: normalizeRoleValue(roleCode, roleName),
-    is_super_admin: Boolean(employee?.is_super_admin),
-  };
-};
-
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
+  const [authUser, setAuthUser] = useState(null);
+  const [session, setSession] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [authError, setAuthError] = useState(null);
 
-  const hydrationInFlightRef = useRef(new Map());
-  const latestRequestedAuthUserIdRef = useRef(null);
-  const hydratedAuthUserIdRef = useRef(null);
-
   const setUnauthenticatedState = useCallback(() => {
-    latestRequestedAuthUserIdRef.current = null;
-    hydratedAuthUserIdRef.current = null;
-    setUser(null);
+    setAuthUser(null);
+    setSession(null);
     setIsAuthenticated(false);
     setAuthError({ type: 'auth_required', message: 'Authentication required' });
     setIsLoadingAuth(false);
@@ -70,92 +35,21 @@ export const AuthProvider = ({ children }) => {
     console.error(label, error);
   }, []);
 
-  const hydrateUser = useCallback(async (authUser) => {
-    if (!authUser?.id) {
+  const setAuthenticatedState = useCallback((nextSession) => {
+    const safeSession = nextSession ?? null;
+    const nextAuthUser = safeSession?.user ?? null;
+
+    if (!nextAuthUser) {
       setUnauthenticatedState();
-      return null;
+      return;
     }
 
-    const authUserId = String(authUser.id);
-    latestRequestedAuthUserIdRef.current = authUserId;
-
-    const existingHydration = hydrationInFlightRef.current.get(authUserId);
-    if (existingHydration) {
-      return existingHydration;
-    }
-
-    const hydrationPromise = (async () => {
-      const fallbackUser = buildNormalizedUser({
-        authUser,
-        employee: null,
-        role: null,
-      });
-
-      try {
-        const { data: employee, error: employeeError } = await supabase
-          .from('employees')
-          .select('id, auth_user_id, role_id, location_id, first_name, last_name, email, is_super_admin')
-          .eq('auth_user_id', authUser.id)
-          .maybeSingle();
-
-        if (latestRequestedAuthUserIdRef.current !== authUserId) {
-          return null;
-        }
-
-        if (employeeError) {
-          logAuthError('Failed to hydrate auth user:', employeeError);
-          setUser(fallbackUser);
-          setIsAuthenticated(true);
-          setAuthError(null);
-          return fallbackUser;
-        }
-
-        let role = null;
-        if (employee?.role_id) {
-          const { data: roleData, error: roleError } = await supabase
-            .from('roles')
-            .select('id, name, code')
-            .eq('id', employee.role_id)
-            .maybeSingle();
-
-          if (roleError) {
-            logAuthError('Failed to load role for employee:', roleError);
-          } else {
-            role = roleData ?? null;
-          }
-        }
-
-        if (latestRequestedAuthUserIdRef.current !== authUserId) {
-          return null;
-        }
-
-        const nextUser = buildNormalizedUser({ authUser, employee, role });
-        setUser(nextUser);
-        setIsAuthenticated(true);
-        setAuthError(null);
-        return nextUser;
-      } catch (error) {
-        if (latestRequestedAuthUserIdRef.current !== authUserId) {
-          return null;
-        }
-
-        logAuthError('Failed to hydrate auth user:', error);
-        setUser(fallbackUser);
-        setIsAuthenticated(true);
-        setAuthError(null);
-        return fallbackUser;
-      } finally {
-        hydrationInFlightRef.current.delete(authUserId);
-
-        if (latestRequestedAuthUserIdRef.current === authUserId) {
-          setIsLoadingAuth(false);
-        }
-      }
-    })();
-
-    hydrationInFlightRef.current.set(authUserId, hydrationPromise);
-    return hydrationPromise;
-  }, [logAuthError, setUnauthenticatedState]);
+    setSession(safeSession);
+    setAuthUser(nextAuthUser);
+    setIsAuthenticated(true);
+    setAuthError(null);
+    setIsLoadingAuth(false);
+  }, [setUnauthenticatedState]);
 
   const checkSession = useCallback(async () => {
     try {
@@ -171,18 +65,14 @@ export const AuthProvider = ({ children }) => {
         return;
       }
 
-      await hydrateUser(session.user);
+      setAuthenticatedState(session);
     } catch (error) {
       logAuthError('Session check failed:', error);
-      setAuthError(null);
+      setAuthError({ type: 'session_error', message: 'Unable to verify session' });
     } finally {
       setIsLoadingAuth(false);
     }
-  }, [hydrateUser, logAuthError, setUnauthenticatedState]);
-
-  useEffect(() => {
-    hydratedAuthUserIdRef.current = user?.authUserId ? String(user.authUserId) : null;
-  }, [user]);
+  }, [logAuthError, setAuthenticatedState, setUnauthenticatedState]);
 
   useEffect(() => {
     let isMounted = true;
@@ -197,82 +87,22 @@ export const AuthProvider = ({ children }) => {
         return;
       }
 
-      const nextAuthUserId = String(session.user.id);
-      const currentHydratedAuthUserId = hydratedAuthUserIdRef.current;
-      const shouldShowLoading =
-        !currentHydratedAuthUserId || currentHydratedAuthUserId !== nextAuthUserId;
-
-      if (shouldShowLoading) {
-        setIsLoadingAuth(true);
-      }
-
-      setAuthError(null);
-
-      try {
-        await hydrateUser(session.user);
-      } finally {
-        if (isMounted && shouldShowLoading) {
-          setIsLoadingAuth(false);
-        }
-      }
+      setAuthenticatedState(session);
     });
 
     return () => {
       isMounted = false;
       data?.subscription?.unsubscribe();
     };
-  }, [checkSession, hydrateUser, setUnauthenticatedState]);
+  }, [checkSession, setAuthenticatedState, setUnauthenticatedState]);
 
-  const updateProfile = async (payload) => {
-    const employeeId = user?.employeeId;
-    if (!employeeId) return null;
-
-    const allowedEmployeeFields = ['first_name', 'last_name', 'email', 'location_id', 'role_id'];
-    const employeePayload = Object.fromEntries(
-      Object.entries(payload || {}).filter(([key]) => allowedEmployeeFields.includes(key))
-    );
-
-    if (Object.keys(employeePayload).length === 0) {
-      return user;
-    }
-
-    const { data: employee, error } = await supabase
-      .from('employees')
-      .update(employeePayload)
-      .eq('id', employeeId)
-      .select('id, auth_user_id, role_id, location_id, first_name, last_name, email, is_super_admin')
-      .maybeSingle();
-
-    if (error) throw error;
-
-    let role = null;
-    if (employee?.role_id) {
-      const { data: roleData, error: roleError } = await supabase
-        .from('roles')
-        .select('id, name, code')
-        .eq('id', employee.role_id)
-        .maybeSingle();
-
-      if (roleError) throw roleError;
-      role = roleData ?? null;
-    }
-
-    const authUser = {
-      id: user?.authUserId ?? null,
-      email: user?.email ?? null,
-    };
-
-    const nextUser = buildNormalizedUser({ authUser, employee, role });
-    setUser(nextUser);
-    return nextUser;
+  const updateProfile = async () => {
+    return authUser;
   };
 
   const logout = async (shouldRedirect = true) => {
     await supabase.auth.signOut();
-    setUser(null);
-    setIsAuthenticated(false);
-    setAuthError({ type: 'auth_required', message: 'Authentication required' });
-    setIsLoadingAuth(false);
+    setUnauthenticatedState();
 
     if (shouldRedirect && typeof window !== 'undefined') {
       navigateToLogin();
@@ -295,7 +125,9 @@ export const AuthProvider = ({ children }) => {
   return (
     <AuthContext.Provider
       value={{
-        user,
+        authUser,
+        session,
+        user: authUser,
         isAuthenticated,
         isLoadingAuth,
         authError,

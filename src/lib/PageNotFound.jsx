@@ -1,21 +1,15 @@
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
-
-const isAdminUser = (user) => {
-    if (!user) return false;
-    if (user.isSuperAdmin === true || user.is_super_admin === true) return true;
-    const roleCode = String(user.roleCode || '').trim().toLowerCase();
-    const roleName = String(user.roleName || '').trim().toLowerCase();
-    const role = String(user.role || '').trim().toLowerCase();
-    return roleCode === 'admin' || roleName === 'admin' || role === 'admin';
-};
+import { useCurrentUser } from '@/lib/CurrentUserContext';
+import { isAdminUser } from '@/lib/authUserUtils';
 
 
-export default function PageNotFound({}) {
+export default function PageNotFound() {
     const location = useLocation();
     const pageName = location.pathname.substring(1);
-    const { user, isAuthenticated, isLoadingAuth } = useAuth();
-    const isAdmin = isAdminUser(user);
+    const { isAuthenticated, isLoadingAuth } = useAuth();
+    const { currentUser, isLoadingProfile } = useCurrentUser();
+    const isAdmin = isAdminUser(currentUser);
     
     return (
         <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
@@ -38,7 +32,7 @@ export default function PageNotFound({}) {
                     </div>
                     
                     {/* Admin Note */}
-                    {!isLoadingAuth && isAuthenticated && isAdmin && (
+                    {!isLoadingAuth && !isLoadingProfile && isAuthenticated && isAdmin && (
                         <div className="mt-8 p-4 bg-slate-100 rounded-lg border border-slate-200">
                             <div className="flex items-start space-x-3">
                                 <div className="flex-shrink-0 w-5 h-5 rounded-full bg-orange-100 flex items-center justify-center mt-0.5">
