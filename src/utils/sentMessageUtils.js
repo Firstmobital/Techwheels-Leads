@@ -1,4 +1,4 @@
-const VALID_LEAD_SOURCES = new Set(['walkin', 'ivr', 'ai']);
+const VALID_LEAD_SOURCES = new Set(['walkin', 'ivr', 'ai', 'vna', 'matchtalk']);
 const AI_FOLLOWUP_STEPS = ['M1', 'M2', 'M3', 'M4'];
 const AI_FOLLOWUP_DAY_OFFSETS = {
   M1: 1,
@@ -9,8 +9,8 @@ const AI_FOLLOWUP_DAY_OFFSETS = {
 
 const TAB_TO_DEFAULT_SOURCE = {
   ai_leads: 'ai',
-  vana: 'walkin',
-  matchtalk: 'walkin',
+  vana: 'vna',
+  matchtalk: 'matchtalk',
 };
 
 const normalizeLeadSource = (value) => {
@@ -37,6 +37,13 @@ export const getLeadSourceForType = (lead, leadType) => {
 };
 
 export const getSourceRecordIdForLead = (lead, leadType) => {
+  // vna_stock and matched_stock_customers have no id column.
+  // Use opportunity_name as the stable natural identifier for both.
+  if (leadType === 'vana' || leadType === 'matchtalk') {
+    const opportunityName = String(lead?.opportunity_name ?? '').trim();
+    return opportunityName || null;
+  }
+
   const explicit = lead?.source_record_id;
   if (explicit !== null && explicit !== undefined && String(explicit).trim()) {
     return String(explicit).trim();
