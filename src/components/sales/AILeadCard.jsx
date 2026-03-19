@@ -53,6 +53,7 @@ export default function AILeadCard({
   const salespersonId = lead?.salesperson_id ?? null;
   const isAssigned = !(salespersonId === null || salespersonId === undefined || salespersonId === '');
   const resolvedPhoneNumber = lead?.mobile_number ?? null;
+  const isIVRLead = String(lead?.lead_source ?? '').trim().toUpperCase() === 'IVR';
   const resolvedModelName = lead?.model_name ?? null;
   const resolvedDetails = lead?.remarks ?? null;
   const resolvedConversationSummary = lead?.conversation_summary ?? null;
@@ -233,9 +234,16 @@ export default function AILeadCard({
               </div>
             )}
           </div>
-          <span className={`text-[10px] px-2 py-1 rounded-full font-semibold flex-shrink-0 ${STATUS_COLORS[normalizedStatus] || STATUS_COLORS.new}`}>
-            {normalizedStatus === 'closed' ? 'Closed' : isAssignedMode ? 'Assigned' : 'Unassigned'}
-          </span>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <span className={`text-[10px] px-2 py-1 rounded-full font-semibold ${STATUS_COLORS[normalizedStatus] || STATUS_COLORS.new}`}>
+              {normalizedStatus === 'closed' ? 'Closed' : isAssignedMode ? 'Assigned' : 'Unassigned'}
+            </span>
+            {isIVRLead && (
+              <span className="text-[10px] px-2 py-1 rounded-full font-semibold bg-sky-100 text-sky-700">
+                IVR
+              </span>
+            )}
+          </div>
         </div>
 
         {resolvedModelName && (
@@ -314,7 +322,7 @@ export default function AILeadCard({
               className="flex-1 text-xs rounded-xl h-8"
               onClick={() => setIsChatDialogOpen(true)}
             >
-              View Full Chat
+              {isIVRLead ? 'View Details' : 'View Full Chat'}
             </Button>
 
             {resolvedMode === 'unassigned' && (
@@ -394,6 +402,13 @@ export default function AILeadCard({
               <div className="text-sm text-gray-700">{resolvedModelName || 'Not available'}</div>
             </div>
 
+            <div className="space-y-1">
+              <div className="text-xs text-gray-400">Lead Source</div>
+              <div className="text-sm text-gray-700">
+                {isIVRLead ? 'IVR Call' : 'AI Chatbot'}
+              </div>
+            </div>
+
             {resolvedConversationSummary && (
               <div className="space-y-1">
                 <div className="text-xs text-gray-400">Conversation Summary</div>
@@ -405,7 +420,9 @@ export default function AILeadCard({
 
             {resolvedDetails && (
               <div className="space-y-1">
-                <div className="text-xs text-gray-400">Current Remarks</div>
+                <div className="text-xs text-gray-400">
+                  {isIVRLead ? 'Call Notes' : 'Current Remarks'}
+                </div>
                 <div className="text-sm text-gray-700 bg-gray-50 rounded-lg border border-gray-100 px-3 py-2 whitespace-pre-wrap">
                   {resolvedDetails}
                 </div>
