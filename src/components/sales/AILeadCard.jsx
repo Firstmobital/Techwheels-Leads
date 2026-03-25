@@ -8,6 +8,12 @@ import { getNextFollowupStep } from '@/utils/sentMessageUtils';
 import { buildCallUrl, buildWhatsAppUrl } from '@/utils/phone';
 import { toast } from 'sonner';
 
+const SafeButton = /** @type {any} */ (Button);
+const SafeDialog = /** @type {any} */ (Dialog);
+const SafeDialogContent = /** @type {any} */ (DialogContent);
+const SafeDialogHeader = /** @type {any} */ (DialogHeader);
+const SafeDialogTitle = /** @type {any} */ (DialogTitle);
+
 const STATUS_COLORS = {
   new: 'bg-blue-100 text-blue-700',
   contacted: 'bg-yellow-100 text-yellow-700',
@@ -390,7 +396,7 @@ export default function AILeadCard({
                 const stepEnabled = !stepAlreadySent && followup.nextStep === stepKey && followup.isDueNow;
 
                 return (
-                  <Button
+                  <SafeButton
                     key={stepKey}
                     size="sm"
                     variant={stepAlreadySent ? 'outline' : 'default'}
@@ -399,14 +405,14 @@ export default function AILeadCard({
                     disabled={!whatsappUrl || !stepEnabled}
                   >
                     {stepKey}
-                  </Button>
+                  </SafeButton>
                 );
               })}
             </div>
           )}
 
           <div className="flex gap-2">
-            <Button
+            <SafeButton
               size="sm"
               variant="outline"
               className="text-xs rounded-xl h-8 px-3"
@@ -417,30 +423,30 @@ export default function AILeadCard({
             >
               <PhoneCall className="w-3.5 h-3.5 mr-1" />
               Call
-            </Button>
+            </SafeButton>
 
-            <Button
+            <SafeButton
               size="sm"
               variant="outline"
               className="flex-1 text-xs rounded-xl h-8"
               onClick={() => setIsChatDialogOpen(true)}
             >
               View Full Chat
-            </Button>
+            </SafeButton>
 
             {resolvedMode === 'unassigned' && (
-              <Button
+              <SafeButton
                 size="sm"
                 className="flex-1 text-xs bg-purple-600 hover:bg-purple-700 text-white rounded-xl h-8"
                 onClick={() => takeMutation.mutate()}
                 disabled={takeMutation.isPending || !currentEmployeeId}
               >
                 {takeMutation.isPending ? 'Picking...' : 'Pick Lead'}
-              </Button>
+              </SafeButton>
             )}
 
             {isAssignedMode && (isMyLead || isAdmin) && (
-              <Button
+              <SafeButton
                 size="sm"
                 variant="outline"
                 className="flex-1 text-xs rounded-xl h-8"
@@ -448,7 +454,7 @@ export default function AILeadCard({
               >
                 {showUpdate ? <ChevronUp className="w-3.5 h-3.5 mr-1" /> : <ChevronDown className="w-3.5 h-3.5 mr-1" />}
                 {showUpdate ? 'Hide Update' : 'Update'}
-              </Button>
+              </SafeButton>
             )}
           </div>
         </div>
@@ -456,7 +462,7 @@ export default function AILeadCard({
 
       {showUpdate && isAssignedMode && (isMyLead || isAdmin) && (
         <div className="border-t border-gray-100 px-4 py-3 bg-gray-50 space-y-2">
-          <Button
+          <SafeButton
             size="sm"
             variant="outline"
             className="w-full text-xs rounded-xl h-8"
@@ -470,9 +476,9 @@ export default function AILeadCard({
                 : hasLaterStageProgress
                   ? 'Green Form Not Needed'
                   : 'Open Green Form'}
-          </Button>
+          </SafeButton>
 
-          <Button
+          <SafeButton
             size="sm"
             variant="outline"
             className="w-full text-xs rounded-xl h-8 border-red-200 text-red-600 hover:bg-red-50"
@@ -480,7 +486,7 @@ export default function AILeadCard({
             disabled={markUninterestedMutation.isPending}
           >
             {markUninterestedMutation.isPending ? 'Updating...' : 'Mark as Uninterested'}
-          </Button>
+          </SafeButton>
 
           {greenFormError && (
             <p className="text-[11px] text-red-600">{greenFormError}</p>
@@ -510,14 +516,14 @@ export default function AILeadCard({
                   })}
                 </select>
 
-                <Button
+                <SafeButton
                   size="sm"
                   className="text-xs rounded-xl h-8"
                   onClick={handleReassignLead}
                   disabled={!selectedEmployeeId || reassignMutation.isPending || usersQuery.isLoading}
                 >
                   {reassignMutation.isPending ? 'Reassigning...' : 'Reassign'}
-                </Button>
+                </SafeButton>
               </div>
             </div>
           )}
@@ -567,23 +573,23 @@ export default function AILeadCard({
               className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-purple-200"
             />
 
-            <Button
+            <SafeButton
               size="sm"
               className="mt-2 text-xs rounded-xl h-8"
               onClick={handleSaveManualNote}
               disabled={!manualNoteText.trim() || addManualNoteMutation.isPending}
             >
               {addManualNoteMutation.isPending ? 'Saving...' : 'Save Note'}
-            </Button>
+            </SafeButton>
           </div>
         </div>
       )}
 
-      <Dialog open={isChatDialogOpen} onOpenChange={setIsChatDialogOpen}>
-        <DialogContent className="max-w-xl p-0 overflow-hidden">
-          <DialogHeader className="px-4 py-3 border-b border-gray-100">
-            <DialogTitle className="text-base">AI Conversation</DialogTitle>
-          </DialogHeader>
+      <SafeDialog open={isChatDialogOpen} onOpenChange={setIsChatDialogOpen}>
+        <SafeDialogContent className="max-w-xl p-0 overflow-hidden">
+          <SafeDialogHeader className="px-4 py-3 border-b border-gray-100">
+            <SafeDialogTitle className="text-base">AI Conversation</SafeDialogTitle>
+          </SafeDialogHeader>
 
           <div className="px-4 py-3 space-y-3 max-h-[70vh] overflow-y-auto">
             <div className="space-y-1">
@@ -632,8 +638,8 @@ export default function AILeadCard({
               )}
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </SafeDialogContent>
+      </SafeDialog>
     </div>
   );
 }
