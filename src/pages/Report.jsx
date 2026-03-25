@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { supabaseApi } from '@/api/supabaseService';
 import { useQuery } from '@tanstack/react-query';
 import { BarChart2, CheckCircle2, RefreshCw, Download } from 'lucide-react';
@@ -8,9 +8,62 @@ import { isAdminUser } from '@/lib/authUserUtils';
 
 const SUCCESS_STATUSES = new Set(['sent']);
 
+const formatDateOnly = (date) => {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getDateRange = (dateRange, customStart, customEnd) => {
+  const now = new Date();
+  const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  if (dateRange === 'this_week') {
+    const start = new Date(todayDate);
+    const mondayOffset = (todayDate.getDay() + 6) % 7;
+    start.setDate(todayDate.getDate() - mondayOffset);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    return {
+      startDate: formatDateOnly(start),
+      endDate: formatDateOnly(end),
+    };
+  }
+
+  if (dateRange === 'this_month') {
+    const start = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
+    const end = new Date(todayDate.getFullYear(), todayDate.getMonth() + 1, 0);
+    return {
+      startDate: formatDateOnly(start),
+      endDate: formatDateOnly(end),
+    };
+  }
+
+  if (dateRange === 'custom') {
+    const safeStart = String(customStart || '').trim();
+    const safeEnd = String(customEnd || '').trim();
+
+    if (safeStart && safeEnd) {
+      return safeStart <= safeEnd
+        ? { startDate: safeStart, endDate: safeEnd }
+        : { startDate: safeEnd, endDate: safeStart };
+    }
+
+    if (safeStart) return { startDate: safeStart, endDate: safeStart };
+    if (safeEnd) return { startDate: safeEnd, endDate: safeEnd };
+  }
+
+  const today = formatDateOnly(todayDate);
+  return { startDate: today, endDate: today };
+};
+
 // Templates moved to Home dashboard
 export default function Report() {
-  const today = new Date().toISOString().split('T')[0];
+  const [dateRange, setDateRange] = useState('today');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
   const { currentUser, isLoadingProfile } = useCurrentUser();
 
   const isAdmin = isAdminUser(currentUser);
@@ -18,7 +71,7 @@ export default function Report() {
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
     queryFn: () => supabaseApi.entities.Employee.list(),
-    enabled: isAdmin,
+    enabled: !!currentUser,
   });
 
   const { data: sentMessages = [], isLoading, refetch } = useQuery({
@@ -45,11 +98,36 @@ export default function Report() {
 
   const totalLeads = vanaLeads.length + matchLeads.length + greenLeads.length;
 
+  const { startDate, endDate } = useMemo(
+    () => getDateRange(dateRange, customStart, customEnd),
+    [dateRange, customEnd, customStart],
+  );
+
+  const selectedRangeLabel = useMemo(() => {
+    if (dateRange === 'today') return 'Today';
+    if (dateRange === 'this_week') return 'This Week';
+    if (dateRange === 'this_month') return 'This Month';
+    if (dateRange === 'custom') {
+      if (startDate && endDate) {
+        return startDate === endDate ? `Custom (${startDate})` : `Custom (${startDate} to ${endDate})`;
+      }
+      return 'Custom';
+    }
+    return 'Selected Range';
+  }, [dateRange, endDate, startDate]);
+
   const filteredMessages = useMemo(() => {
     if (!currentUser) return [];
-    if (isAdmin) return sentMessages;
-    return sentMessages.filter(m => String(m.sent_by_employee_id || '') === String(currentUser.employeeId || ''));
-  }, [sentMessages, currentUser, isAdmin]);
+    const visibleMessages = isAdmin
+      ? sentMessages
+      : sentMessages.filter(m => String(m.sent_by_employee_id || '') === String(currentUser.employeeId || ''));
+
+    return visibleMessages.filter((message) => {
+      const createdDate = String(message?.created_at || '').split('T')[0];
+      if (!createdDate) return false;
+      return createdDate >= startDate && createdDate <= endDate;
+    });
+  }, [sentMessages, currentUser, isAdmin, startDate, endDate]);
 
   // Group key: sent_by_employee_id + date(created_at)
   const groupedBySenderAndDate = useMemo(() => {
@@ -86,8 +164,8 @@ export default function Report() {
   }, [filteredMessages]);
 
   const todayGrouped = useMemo(() => {
-    return groupedBySenderAndDate.filter(g => g.sent_date === today);
-  }, [groupedBySenderAndDate, today]);
+    return groupedBySenderAndDate.filter((g) => g.sent_date >= startDate && g.sent_date <= endDate);
+  }, [groupedBySenderAndDate, startDate, endDate]);
 
   const messagesPerUser = useMemo(() => {
     const map = {};
@@ -167,6 +245,67 @@ export default function Report() {
   const totalContacted = totalMessagesSent;
   const totalPending = Math.max(0, totalLeads - new Set(filteredMessages.map(m => `${m.lead_source || ''}:${m.source_record_id || ''}`)).size);
 
+  const leaderboardMessages = useMemo(() => {
+    return sentMessages.filter((message) => {
+      const createdDate = String(message?.created_at || '').split('T')[0];
+      if (!createdDate) return false;
+      return createdDate >= startDate && createdDate <= endDate;
+    });
+  }, [sentMessages, startDate, endDate]);
+
+  const rankedSalespersons = useMemo(() => {
+    const grouped = new Map();
+
+    leaderboardMessages.forEach((message) => {
+      const employeeId = String(message?.sent_by_employee_id || 'unassigned');
+      if (!grouped.has(employeeId)) {
+        grouped.set(employeeId, {
+          employeeId,
+          messages_sent: 0,
+          leadIds: new Set(),
+          aiLeadIds: new Set(),
+        });
+      }
+
+      const row = grouped.get(employeeId);
+      row.messages_sent += 1;
+
+      const sourceRecordId = String(message?.source_record_id || '').trim();
+      if (sourceRecordId) {
+        row.leadIds.add(sourceRecordId);
+      }
+
+      // Approximation: treat unique AI leads messaged in range as green-form-opened count proxy.
+      const leadSource = String(message?.lead_source || '').trim().toLowerCase();
+      if (leadSource === 'ai' && sourceRecordId) {
+        row.aiLeadIds.add(sourceRecordId);
+      }
+    });
+
+    const rows = Array.from(grouped.values())
+      .map((row) => {
+        const user = users.find((item) => String(item?.id) === String(row.employeeId));
+        const fullName = [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim();
+
+        return {
+          employeeId: row.employeeId,
+          name: fullName || user?.email || `Employee #${row.employeeId}`,
+          messages_sent: row.messages_sent,
+          unique_leads_contacted: row.leadIds.size,
+          green_forms_opened: row.aiLeadIds.size,
+        };
+      })
+      .sort((a, b) => b.messages_sent - a.messages_sent)
+      .map((row, index) => ({
+        ...row,
+        rank: index + 1,
+      }));
+
+    return rows;
+  }, [leaderboardMessages, users]);
+
+  const topMessagesSent = rankedSalespersons[0]?.messages_sent ?? 0;
+
   const sourceColors = {
     walkin: 'bg-amber-100 text-amber-700',
     ivr: 'bg-emerald-100 text-emerald-700',
@@ -203,6 +342,46 @@ export default function Report() {
           </div>
         ) : null}
 
+        <div className="bg-white rounded-2xl p-3 shadow-sm border border-gray-100 space-y-3">
+          <div className="flex flex-wrap gap-2">
+            {[
+              { value: 'today', label: 'Today' },
+              { value: 'this_week', label: 'This Week' },
+              { value: 'this_month', label: 'This Month' },
+              { value: 'custom', label: 'Custom' },
+            ].map((option) => {
+              const isActive = dateRange === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setDateRange(option.value)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${isActive ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {dateRange === 'custom' && (
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="date"
+                value={customStart}
+                onChange={(event) => setCustomStart(event.target.value)}
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs"
+              />
+              <input
+                type="date"
+                value={customEnd}
+                onChange={(event) => setCustomEnd(event.target.value)}
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs"
+              />
+            </div>
+          )}
+        </div>
+
         {/* Summary Cards */}
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-white rounded-2xl p-3 shadow-sm border border-gray-100 text-center">
@@ -211,27 +390,27 @@ export default function Report() {
           </div>
           <div className="bg-emerald-50 rounded-2xl p-3 shadow-sm border border-emerald-100 text-center">
             <p className="text-2xl font-bold text-emerald-700">{totalContacted}</p>
-            <p className="text-[11px] text-emerald-500 mt-0.5">Messages Sent Today</p>
+            <p className="text-[11px] text-emerald-500 mt-0.5">Messages Sent ({selectedRangeLabel})</p>
           </div>
           <div className="bg-amber-50 rounded-2xl p-3 shadow-sm border border-amber-100 text-center">
             <p className="text-2xl font-bold text-amber-700">{successRate}%</p>
-            <p className="text-[11px] text-amber-500 mt-0.5">Success Rate</p>
+            <p className="text-[11px] text-amber-500 mt-0.5">Success Rate ({selectedRangeLabel})</p>
           </div>
         </div>
 
         <div className="bg-white rounded-2xl p-3 shadow-sm border border-gray-100 text-center">
-          <p className="text-sm text-gray-500">Pending Leads: <span className="font-semibold text-gray-900">{totalPending}</span></p>
+          <p className="text-sm text-gray-500">Pending Leads ({selectedRangeLabel}): <span className="font-semibold text-gray-900">{totalPending}</span></p>
         </div>
 
         {/* Per Salesperson */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-50 flex items-center gap-2">
             <BarChart2 className="w-4 h-4 text-gray-500" />
-            <h2 className="font-semibold text-sm text-gray-800">Salesperson Performance Today</h2>
+            <h2 className="font-semibold text-sm text-gray-800">Salesperson Performance ({selectedRangeLabel})</h2>
           </div>
 
           {messagesPerUser.length === 0 ? (
-            <div className="py-10 text-center text-gray-400 text-sm">No activity yet today</div>
+            <div className="py-10 text-center text-gray-400 text-sm">No activity in selected range</div>
           ) : (
             <div className="divide-y divide-gray-50">
               {messagesPerUser.map((person) => (
@@ -269,15 +448,19 @@ export default function Report() {
           )}
         </div>
 
-        {/* Lead source breakdown for today */}
+        {/* Lead source breakdown for selected range */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-50">
-            <h2 className="font-semibold text-sm text-gray-800">Today's Breakdown by Lead Source</h2>
+            <h2 className="font-semibold text-sm text-gray-800">{selectedRangeLabel} Breakdown by Lead Source</h2>
           </div>
           <div className="divide-y divide-gray-50">
             {['walkin', 'ivr', 'ai'].map(source => {
               const count = filteredMessages
-                .filter(m => m.created_at && m.created_at.split('T')[0] === today && m.lead_source === source)
+                .filter((m) => {
+                  const createdDate = String(m?.created_at || '').split('T')[0];
+                  if (!createdDate) return false;
+                  return createdDate >= startDate && createdDate <= endDate && m.lead_source === source;
+                })
                 .length;
               const total = Math.max(totalMessagesSent, 1);
               const pct = Math.round((count / total) * 100);
@@ -293,11 +476,70 @@ export default function Report() {
                       style={{ width: `${pct}%` }}
                     />
                   </div>
-                  <p className="text-[10px] text-gray-400 mt-1">{pct}% contacted today</p>
+                    <p className="text-[10px] text-gray-400 mt-1">{pct}% contacted ({selectedRangeLabel})</p>
                 </div>
               );
             })}
           </div>
+        </div>
+
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-50">
+            <h2 className="font-semibold text-sm text-gray-800">Leaderboard</h2>
+          </div>
+
+          {rankedSalespersons.length === 0 ? (
+            <div className="py-10 text-center text-gray-400 text-sm">No leaderboard data in selected range</div>
+          ) : (
+            <div className="divide-y divide-gray-50">
+              {rankedSalespersons.map((person) => {
+                const isCurrentUser = String(person.employeeId) === String(currentUser?.employeeId || '');
+                const medal = person.rank === 1 ? '🥇' : person.rank === 2 ? '🥈' : person.rank === 3 ? '🥉' : null;
+                const progressPercent = topMessagesSent > 0
+                  ? Math.round((person.messages_sent / topMessagesSent) * 100)
+                  : 0;
+                const initials = person.name
+                  .split(' ')
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((part) => part[0]?.toUpperCase() ?? '')
+                  .join('') || '?';
+
+                return (
+                  <div
+                    key={person.employeeId}
+                    className={`px-4 py-3 ${!isAdmin && isCurrentUser ? 'bg-blue-50/70' : ''}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 text-xs font-semibold text-gray-600 flex-shrink-0">
+                        {medal ? `${medal} #${person.rank}` : `#${person.rank}`}
+                      </div>
+
+                      <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-700 flex-shrink-0">
+                        {initials}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-gray-800 truncate">{person.name}</p>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-700">{person.messages_sent} msgs</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-700">{person.unique_leads_contacted} leads</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-700">{person.green_forms_opened} GF</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-2 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gray-900 rounded-full"
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>

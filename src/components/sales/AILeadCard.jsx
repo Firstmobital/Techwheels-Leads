@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabaseApi } from '@/api/supabaseService';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { User, Phone, Car, MessageSquare, CheckCircle, ChevronDown, ChevronUp, PhoneCall } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { getNextFollowupStep } from '@/utils/sentMessageUtils';
 import { buildCallUrl, buildWhatsAppUrl } from '@/utils/phone';
+import { toast } from 'sonner';
 
 const STATUS_COLORS = {
   new: 'bg-blue-100 text-blue-700',
@@ -18,6 +19,16 @@ const STATUS_COLORS = {
 };
 
 const STEP_KEYS = ['M1', 'M2', 'M3', 'M4'];
+const NOTE_TYPE_DOT_COLORS = {
+  manual: 'bg-gray-400',
+  whatsapp_sent: 'bg-green-500',
+  assigned: 'bg-blue-500',
+  status_changed: 'bg-yellow-500',
+  green_form_opened: 'bg-purple-500',
+  marked_uninterested: 'bg-red-500'
+};
+
+const RELATIVE_TIME_FORMATTER = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
 
 const normalizeTemplateToken = (value) => String(value ?? '').trim().toLowerCase();
 const normalizeStepToken = (value) => String(value ?? '').trim().toUpperCase();
@@ -34,6 +45,26 @@ const buildDefaultStepMessage = (lead, stepKey) => {
   return `Hello ${customerName},\n\n${stepKey} follow-up for ${modelName}. Please let us know if you would like to continue the discussion.\n\nThank you.`;
 };
 
+const formatRelativeTime = (value) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+
+  const diffMs = date.getTime() - Date.now();
+  const absMs = Math.abs(diffMs);
+  const minuteMs = 60 * 1000;
+  const hourMs = 60 * minuteMs;
+  const dayMs = 24 * hourMs;
+
+  if (absMs < hourMs) {
+    return RELATIVE_TIME_FORMATTER.format(Math.round(diffMs / minuteMs), 'minute');
+  }
+  if (absMs < dayMs) {
+    return RELATIVE_TIME_FORMATTER.format(Math.round(diffMs / hourMs), 'hour');
+  }
+  return RELATIVE_TIME_FORMATTER.format(Math.round(diffMs / dayMs), 'day');
+};
+
 export default function AILeadCard({
   lead,
   currentUser,
@@ -48,12 +79,13 @@ export default function AILeadCard({
   const [showUpdate, setShowUpdate] = useState(false);
   const [isChatDialogOpen, setIsChatDialogOpen] = useState(false);
   const [greenFormError, setGreenFormError] = useState('');
+  const [manualNoteText, setManualNoteText] = useState('');
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
 
   const currentEmployeeId = currentUser?.employeeId ?? null;
   const salespersonId = lead?.salesperson_id ?? null;
   const isAssigned = !(salespersonId === null || salespersonId === undefined || salespersonId === '');
   const resolvedPhoneNumber = lead?.mobile_number ?? null;
-  const isIVRLead = String(lead?.lead_source ?? '').trim().toUpperCase() === 'IVR';
   const resolvedModelName = lead?.model_name ?? null;
   const resolvedDetails = lead?.remarks ?? null;
   const resolvedConversationSummary = lead?.conversation_summary ?? null;
@@ -72,6 +104,10 @@ export default function AILeadCard({
   const laterStageStatuses = new Set(['submitted', 'closed']);
   const hasLaterStageProgress = hasOptyId && laterStageStatuses.has(normalizedStatus);
   const assigneeDisplayName = lead?.employee_full_name || lead?.ca_name || (salespersonId ? String(salespersonId) : 'Unassigned');
+  const currentEmployeeName =
+    String(currentUser?.fullName ?? '').trim() ||
+    [String(currentUser?.firstName ?? '').trim(), String(currentUser?.lastName ?? '').trim()].filter(Boolean).join(' ').trim() ||
+    'Employee';
 
   useEffect(() => {
     setShowUpdate(false);
@@ -101,6 +137,27 @@ export default function AILeadCard({
     return getNextFollowupStep(lead, sentMessages);
   }, [lead, sentMessages]);
 
+  const notesQuery = useQuery({
+    queryKey: ['lead-notes', lead.id],
+    queryFn: () => supabaseApi.leadNotes.getForLead(lead.id),
+    enabled: Boolean(showUpdate && lead?.id),
+  });
+
+  const usersQuery = useQuery({
+    queryKey: ['users'],
+    queryFn: () => supabaseApi.entities.Employee.list(),
+    enabled: Boolean(isAdmin),
+  });
+
+  const selectedEmployeeName = useMemo(() => {
+    const employees = Array.isArray(usersQuery.data) ? usersQuery.data : [];
+    const selected = employees.find((employee) => String(employee?.id) === String(selectedEmployeeId));
+    if (!selected) return null;
+    const firstName = String(selected.first_name ?? '').trim();
+    const lastName = String(selected.last_name ?? '').trim();
+    return [firstName, lastName].filter(Boolean).join(' ').trim() || String(selected.id);
+  }, [selectedEmployeeId, usersQuery.data]);
+
   const nextFollowupLabel = useMemo(() => {
     if (!isAssignedMode || followup.isCompleted || !followup.nextStep || !followup.dueDate) return null;
     const dueDate = followup.dueDate;
@@ -108,18 +165,32 @@ export default function AILeadCard({
     return `${followup.nextStep} due ${dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
   }, [followup, isAssignedMode]);
 
+  const logLeadNote = async (noteType, noteText) => {
+    try {
+      if (!lead?.id) return;
+      await supabaseApi.leadNotes.addNote(lead.id, currentUser?.employeeId ?? null, noteType, noteText);
+      queryClient.invalidateQueries({ queryKey: ['lead-notes', lead.id] });
+    } catch (error) {
+      console.error('Failed to create lead activity note:', error);
+    }
+  };
+
   const takeMutation = useMutation({
     mutationFn: () => supabaseApi.entities.AILead.update(lead.id, {
       salesperson_id: currentEmployeeId,
       assigned_at: new Date().toISOString(),
       opty_status: 'contacted',
     }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['ai-leads'] }),
+    onSuccess: async () => {
+      await logLeadNote('assigned', `Lead picked up by ${currentEmployeeName}`);
+      queryClient.invalidateQueries({ queryKey: ['ai-leads'] });
+    },
   });
 
   const openGreenFormMutation = useMutation({
     mutationFn: () => supabaseApi.entities.AILead.requestGreenForm(lead.id),
-    onSuccess: () => {
+    onSuccess: async () => {
+      await logLeadNote('green_form_opened', 'Green form opened');
       setGreenFormError('');
       queryClient.invalidateQueries({ queryKey: ['ai-leads'] });
     },
@@ -139,11 +210,47 @@ export default function AILeadCard({
       lead_disposition: 'uninterested',
       opty_status: 'closed',
     }),
-    onSuccess: () => {
+    onSuccess: async () => {
+      await logLeadNote('marked_uninterested', 'Lead marked as uninterested');
       queryClient.invalidateQueries({ queryKey: ['ai-leads'] });
       setShowUpdate(false);
     },
   });
+
+  const addManualNoteMutation = useMutation({
+    mutationFn: () => supabaseApi.leadNotes.addNote(lead.id, currentEmployeeId, 'manual', manualNoteText.trim()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lead-notes', lead.id] });
+      setManualNoteText('');
+    },
+  });
+
+  const reassignMutation = useMutation({
+    mutationFn: () => supabaseApi.entities.AILead.update(lead.id, {
+      salesperson_id: selectedEmployeeId,
+      assigned_at: new Date().toISOString(),
+    }),
+    onSuccess: async () => {
+      queryClient.invalidateQueries({ queryKey: ['ai-leads'] });
+      await logLeadNote('assigned', `Lead reassigned to ${selectedEmployeeName || selectedEmployeeId}`);
+      toast.success('Lead reassigned');
+      setSelectedEmployeeId('');
+    },
+    onError: (error) => {
+      toast.error(error?.message || 'Failed to reassign lead');
+    },
+  });
+
+  const handleSaveManualNote = () => {
+    const trimmedNote = manualNoteText.trim();
+    if (!trimmedNote || addManualNoteMutation.isPending) return;
+    addManualNoteMutation.mutate();
+  };
+
+  const handleReassignLead = () => {
+    if (!selectedEmployeeId || reassignMutation.isPending) return;
+    reassignMutation.mutate();
+  };
 
   const resolveTemplateForStep = (stepKey) => {
     const normalizedStep = normalizeStepToken(stepKey);
@@ -206,6 +313,7 @@ export default function AILeadCard({
           templateId: template?.id ?? null,
         });
       }
+      void logLeadNote('whatsapp_sent', `WhatsApp message sent - step ${stepKey}`);
     } catch (error) {
       console.error('Failed to log AI follow-up communication:', error);
     } finally {
@@ -238,11 +346,6 @@ export default function AILeadCard({
             <span className={`text-[10px] px-2 py-1 rounded-full font-semibold ${STATUS_COLORS[normalizedStatus] || STATUS_COLORS.new}`}>
               {normalizedStatus === 'closed' ? 'Closed' : isAssignedMode ? 'Assigned' : 'Unassigned'}
             </span>
-            {isIVRLead && (
-              <span className="text-[10px] px-2 py-1 rounded-full font-semibold bg-sky-100 text-sky-700">
-                IVR
-              </span>
-            )}
           </div>
         </div>
 
@@ -322,7 +425,7 @@ export default function AILeadCard({
               className="flex-1 text-xs rounded-xl h-8"
               onClick={() => setIsChatDialogOpen(true)}
             >
-              {isIVRLead ? 'View Details' : 'View Full Chat'}
+              View Full Chat
             </Button>
 
             {resolvedMode === 'unassigned' && (
@@ -382,6 +485,97 @@ export default function AILeadCard({
           {greenFormError && (
             <p className="text-[11px] text-red-600">{greenFormError}</p>
           )}
+
+          {isAdmin && (
+            <div className="pt-2 border-t border-gray-200 space-y-2">
+              <p className="text-[11px] text-gray-500">
+                {assigneeDisplayName === 'Unassigned' ? 'Currently unassigned' : `Currently assigned to: ${assigneeDisplayName}`}
+              </p>
+              <div className="flex gap-2">
+                <select
+                  value={selectedEmployeeId}
+                  onChange={(event) => setSelectedEmployeeId(event.target.value)}
+                  className="flex-1 h-8 rounded-lg border border-gray-200 px-2 text-xs bg-white"
+                >
+                  <option value="">Select employee</option>
+                  {(usersQuery.data ?? []).map((employee) => {
+                    const firstName = String(employee?.first_name ?? '').trim();
+                    const lastName = String(employee?.last_name ?? '').trim();
+                    const displayName = [firstName, lastName].filter(Boolean).join(' ').trim() || String(employee?.id ?? '');
+                    return (
+                      <option key={employee.id} value={employee.id}>
+                        {displayName}
+                      </option>
+                    );
+                  })}
+                </select>
+
+                <Button
+                  size="sm"
+                  className="text-xs rounded-xl h-8"
+                  onClick={handleReassignLead}
+                  disabled={!selectedEmployeeId || reassignMutation.isPending || usersQuery.isLoading}
+                >
+                  {reassignMutation.isPending ? 'Reassigning...' : 'Reassign'}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <div className="pt-2 border-t border-gray-200">
+            <h4 className="text-[11px] font-semibold text-gray-600 mb-2">Activity Log</h4>
+
+            <div className="space-y-2 mb-3">
+              {notesQuery.isLoading && (
+                <p className="text-[11px] text-gray-500">Loading notes...</p>
+              )}
+
+              {notesQuery.isError && (
+                <p className="text-[11px] text-red-600">Failed to load notes.</p>
+              )}
+
+              {!notesQuery.isLoading && !notesQuery.isError && (notesQuery.data ?? []).length === 0 && (
+                <p className="text-[11px] text-gray-500">No activity yet.</p>
+              )}
+
+              {(notesQuery.data ?? []).map((note) => {
+                const dotColorClass = NOTE_TYPE_DOT_COLORS[note?.note_type] || NOTE_TYPE_DOT_COLORS.manual;
+                const firstName = String(note?.employee?.first_name ?? '').trim();
+                const lastName = String(note?.employee?.last_name ?? '').trim();
+                const authorName = [firstName, lastName].filter(Boolean).join(' ').trim();
+
+                return (
+                  <div key={note.id} className="flex items-start gap-2">
+                    <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${dotColorClass}`} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-gray-700 whitespace-pre-wrap break-words">{note.note_text}</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">
+                        {formatRelativeTime(note.created_at)}
+                        {authorName ? ` • ${authorName}` : ''}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <textarea
+              rows={3}
+              value={manualNoteText}
+              onChange={(event) => setManualNoteText(event.target.value)}
+              placeholder="Add a note..."
+              className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-purple-200"
+            />
+
+            <Button
+              size="sm"
+              className="mt-2 text-xs rounded-xl h-8"
+              onClick={handleSaveManualNote}
+              disabled={!manualNoteText.trim() || addManualNoteMutation.isPending}
+            >
+              {addManualNoteMutation.isPending ? 'Saving...' : 'Save Note'}
+            </Button>
+          </div>
         </div>
       )}
 
@@ -404,9 +598,7 @@ export default function AILeadCard({
 
             <div className="space-y-1">
               <div className="text-xs text-gray-400">Lead Source</div>
-              <div className="text-sm text-gray-700">
-                {isIVRLead ? 'IVR Call' : 'AI Chatbot'}
-              </div>
+              <div className="text-sm text-gray-700">AI Chatbot</div>
             </div>
 
             {resolvedConversationSummary && (
@@ -420,9 +612,7 @@ export default function AILeadCard({
 
             {resolvedDetails && (
               <div className="space-y-1">
-                <div className="text-xs text-gray-400">
-                  {isIVRLead ? 'Call Notes' : 'Current Remarks'}
-                </div>
+                <div className="text-xs text-gray-400">Current Remarks</div>
                 <div className="text-sm text-gray-700 bg-gray-50 rounded-lg border border-gray-100 px-3 py-2 whitespace-pre-wrap">
                   {resolvedDetails}
                 </div>

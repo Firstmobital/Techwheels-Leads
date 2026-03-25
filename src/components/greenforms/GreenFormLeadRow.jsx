@@ -1,15 +1,62 @@
 import { useState } from "react";
 import { supabaseApi } from "@/api/supabaseService";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useCurrentUser } from "@/lib/CurrentUserContext";
 import { MessageSquare, Pencil, Check, X, User, Phone, PhoneCall } from "lucide-react";
 import { buildCallUrl, buildWhatsAppUrl } from "@/utils/phone";
+import { toast } from "sonner";
 
 // Legacy component retained only for historical reference.
 // Not part of the active web runtime Green Forms path.
 let hasWarnedLegacyGreenFormLeadRow = false;
 
+const CLOSURE_REASONS = [
+  { value: "not_interested", label: "Not Interested" },
+  { value: "bought_elsewhere", label: "Bought Elsewhere" },
+  { value: "price_issue", label: "Price Issue" },
+  { value: "unreachable", label: "Unreachable" },
+  { value: "duplicate", label: "Duplicate" },
+  { value: "other", label: "Other" },
+];
+
+const ALLOWED_SOURCE_TYPES = new Set(["walkin", "ivr", "ai"]);
+
+const resolveSourceType = (lead) => {
+  const fromLead = String(lead?.source_type || lead?.source_pv || lead?.lead_source || "").trim().toLowerCase();
+  if (ALLOWED_SOURCE_TYPES.has(fromLead)) return fromLead;
+
+  const idValue = String(lead?.id || "");
+  const separatorIndex = idValue.indexOf(":");
+  if (separatorIndex > 0) {
+    const prefix = idValue.slice(0, separatorIndex).trim().toLowerCase();
+    if (ALLOWED_SOURCE_TYPES.has(prefix)) return prefix;
+  }
+
+  return "ai";
+};
+
+const resolveSourceRecordId = (lead) => {
+  const explicit = lead?.source_record_id;
+  if (explicit !== null && explicit !== undefined && String(explicit).trim() !== "") {
+    return String(explicit);
+  }
+
+  const idValue = String(lead?.id || "");
+  const separatorIndex = idValue.indexOf(":");
+  if (separatorIndex > 0 && separatorIndex < idValue.length - 1) {
+    return idValue.slice(separatorIndex + 1);
+  }
+
+  return idValue;
+};
+
 export default function GreenFormLeadRow({ lead, onUpdate }) {
+  const queryClient = useQueryClient();
+  const { currentUser } = useCurrentUser();
+
   if (!hasWarnedLegacyGreenFormLeadRow && typeof window !== "undefined") {
     hasWarnedLegacyGreenFormLeadRow = true;
     console.warn("[Legacy] GreenFormLeadRow is deprecated and not part of active runtime.");
@@ -17,8 +64,31 @@ export default function GreenFormLeadRow({ lead, onUpdate }) {
 
   const [editingNotes, setEditingNotes] = useState(false);
   const [notes, setNotes] = useState(lead.notes || "");
+  const [isCloseSheetOpen, setIsCloseSheetOpen] = useState(false);
+  const [closureReason, setClosureReason] = useState("not_interested");
+  const [closureRemarks, setClosureRemarks] = useState("");
   const whatsappUrl = buildWhatsAppUrl(lead.phone_number, "");
   const callUrl = buildCallUrl(lead.phone_number);
+
+  const closeRequestMutation = useMutation({
+    mutationFn: () => supabaseApi.entities.GreenFormClosureRequest.create({
+      source_type: resolveSourceType(lead),
+      source_record_id: resolveSourceRecordId(lead),
+      reason: closureReason,
+      remarks: closureRemarks.trim() || null,
+      requested_by_employee_id: currentUser?.employeeId ?? null,
+    }),
+    onSuccess: () => {
+      toast.success("Closure request submitted");
+      setIsCloseSheetOpen(false);
+      setClosureRemarks("");
+      setClosureReason("not_interested");
+      queryClient.invalidateQueries({ queryKey: ["green-leads"] });
+    },
+    onError: (error) => {
+      toast.error(error?.message || "Failed to submit closure request");
+    },
+  });
 
   const saveNotes = async () => {
     await supabaseApi.entities.GreenFormLead.update(lead.id, { notes });
@@ -34,6 +104,11 @@ export default function GreenFormLeadRow({ lead, onUpdate }) {
   const openCall = () => {
     if (!callUrl) return;
     window.location.href = callUrl;
+  };
+
+  const handleConfirmClose = () => {
+    if (closeRequestMutation.isPending) return;
+    closeRequestMutation.mutate();
   };
 
   const fields = [
@@ -115,8 +190,67 @@ export default function GreenFormLeadRow({ lead, onUpdate }) {
           >
             <MessageSquare className="w-4 h-4" />
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setIsCloseSheetOpen(true)}
+            className="rounded-xl h-10 px-3"
+            title="Close"
+          >
+            Close
+          </Button>
         </div>
       </div>
+
+      <Sheet open={isCloseSheetOpen} onOpenChange={setIsCloseSheetOpen}>
+        <SheetContent side="bottom" className="rounded-t-2xl">
+          <SheetHeader>
+            <SheetTitle>Close Green Form</SheetTitle>
+          </SheetHeader>
+
+          <div className="mt-4 space-y-3">
+            <div className="space-y-1">
+              <label htmlFor={`closure-reason-${lead.id}`} className="text-xs font-medium text-gray-600">
+                Reason
+              </label>
+              <select
+                id={`closure-reason-${lead.id}`}
+                value={closureReason}
+                onChange={(event) => setClosureReason(event.target.value)}
+                className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm"
+              >
+                {CLOSURE_REASONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label htmlFor={`closure-remarks-${lead.id}`} className="text-xs font-medium text-gray-600">
+                Remarks (optional)
+              </label>
+              <textarea
+                id={`closure-remarks-${lead.id}`}
+                rows={3}
+                value={closureRemarks}
+                onChange={(event) => setClosureRemarks(event.target.value)}
+                placeholder="Add remarks..."
+                className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm"
+              />
+            </div>
+
+            <Button
+              className="w-full"
+              onClick={handleConfirmClose}
+              disabled={closeRequestMutation.isPending}
+            >
+              {closeRequestMutation.isPending ? "Submitting..." : "Confirm Close"}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

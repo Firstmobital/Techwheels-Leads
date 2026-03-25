@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { supabaseApi } from '@/api/supabaseService';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
-import { CarFront, Sparkles, FileText, Bot } from 'lucide-react';
+import { CarFront, Sparkles, FileText, Bot, Search } from 'lucide-react';
 import TabContent from '../components/sales/TabContent';
 import TemplatesSection from '../components/sales/TemplatesSection';
 import AILeadCard from '../components/sales/AILeadCard';
@@ -37,7 +37,7 @@ const MESSAGES = {
 export default function Home() {
   const [activeTab, setActiveTab] = useState('vana');
   const [aiLeadsView, setAiLeadsView] = useState('assigned');
-  const [aiSourceFilter, setAiSourceFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const { isLoadingAuth } = useAuth();
   const { currentUser, isLoadingProfile } = useCurrentUser();
   const queryClient = useQueryClient();
@@ -215,10 +215,16 @@ export default function Home() {
     return true;
   }, []);
 
-  // Filter AI leads: admin sees all, CA sees unassigned + their own
+  // Filter AI leads: exclude IVR (those surface in Green Forms), admin sees all, CA sees unassigned + their own
   const filteredAILeads = useMemo(() => {
     if (!currentUser) return [];
-    const actionableLeads = aiLeads.filter((lead) => isVisibleAILead(lead));
+    const actionableLeads = aiLeads.filter((lead) => {
+      if (!isVisibleAILead(lead)) return false;
+      // IVR leads are handled separately in the Green Forms tab
+      const src = String(lead?.lead_source ?? '').trim().toUpperCase();
+      if (src === 'IVR') return false;
+      return true;
+    });
     const currentEmployeeId = currentUser.employeeId ?? null;
     if (isAdmin) return actionableLeads;
     return actionableLeads.filter((lead) => {
@@ -230,21 +236,51 @@ export default function Home() {
     });
   }, [aiLeads, currentUser, isAdmin, isVisibleAILead]);
 
-  const displayedAILeads = useMemo(() => {
-    if (aiSourceFilter === 'all') return filteredAILeads;
-    return filteredAILeads.filter((lead) => {
-      const src = String(lead?.lead_source ?? '').trim().toUpperCase();
-      if (aiSourceFilter === 'ivr') return src === 'IVR';
-      if (aiSourceFilter === 'chatbot') return src !== 'IVR';
-      return true;
+  const displayedAILeads = filteredAILeads;
+
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const isSearchActive = normalizedSearchQuery.length >= 2;
+
+  const filterLeadByNameAndPhone = useCallback((lead) => {
+    if (!isSearchActive) return true;
+    const customerName = String(lead?.customer_name ?? '').toLowerCase();
+    const phoneNumber = String(lead?.phone_number ?? lead?.mobile_number ?? '').toLowerCase();
+    return customerName.includes(normalizedSearchQuery) || phoneNumber.includes(normalizedSearchQuery);
+  }, [isSearchActive, normalizedSearchQuery]);
+
+  const baseVanaLeads = useMemo(() => filterLeads(vanaLeads, 'vana'), [filterLeads, vanaLeads]);
+  const baseMatchLeads = useMemo(() => filterLeads(matchLeads, 'matchtalk'), [filterLeads, matchLeads]);
+  const baseGreenLeads = useMemo(() => filterLeads(greenLeads, 'greenforms'), [filterLeads, greenLeads]);
+
+  const visibleVanaLeads = useMemo(() => {
+    if (!isSearchActive) return baseVanaLeads;
+    return baseVanaLeads.filter((lead) => filterLeadByNameAndPhone(lead));
+  }, [baseVanaLeads, filterLeadByNameAndPhone, isSearchActive]);
+
+  const visibleMatchLeads = useMemo(() => {
+    if (!isSearchActive) return baseMatchLeads;
+    return baseMatchLeads.filter((lead) => filterLeadByNameAndPhone(lead));
+  }, [baseMatchLeads, filterLeadByNameAndPhone, isSearchActive]);
+
+  const visibleGreenLeads = useMemo(() => {
+    if (!isSearchActive) return baseGreenLeads;
+    return baseGreenLeads.filter((lead) => filterLeadByNameAndPhone(lead));
+  }, [baseGreenLeads, filterLeadByNameAndPhone, isSearchActive]);
+
+  const visibleAILeads = useMemo(() => {
+    if (!isSearchActive) return displayedAILeads;
+    return displayedAILeads.filter((lead) => {
+      const customerName = String(lead?.customer_name ?? '').toLowerCase();
+      const mobileNumber = String(lead?.mobile_number ?? '').toLowerCase();
+      return customerName.includes(normalizedSearchQuery) || mobileNumber.includes(normalizedSearchQuery);
     });
-  }, [filteredAILeads, aiSourceFilter]);
+  }, [displayedAILeads, isSearchActive, normalizedSearchQuery]);
 
   const aiLeadSections = useMemo(() => {
     const unassigned = [];
     const assigned = [];
 
-    displayedAILeads.forEach((lead) => {
+    visibleAILeads.forEach((lead) => {
       const salespersonId = lead?.salesperson_id ?? null;
       const isUnassigned = salespersonId === null || salespersonId === undefined || salespersonId === '';
       if (isUnassigned) {
@@ -276,14 +312,25 @@ export default function Home() {
       followUpPendingToday,
       followUpNotPending,
     };
-  }, [displayedAILeads, sentMessages]);
+  }, [visibleAILeads, sentMessages]);
 
   const tabData = {
-    vana: { leads: filterLeads(vanaLeads, 'vana'), loading: vanaLoading, refreshKey: 'vna-stock' },
-    matchtalk: { leads: filterLeads(matchLeads, 'matchtalk'), loading: matchLoading, refreshKey: 'match-leads' },
-    greenforms: { leads: filterLeads(greenLeads, 'greenforms'), loading: greenLoading, refreshKey: 'green-leads' },
-    ai_leads: { leads: filteredAILeads, loading: aiLoading, refreshKey: 'ai-leads' },
+    vana: { leads: visibleVanaLeads, loading: vanaLoading, refreshKey: 'vna-stock' },
+    matchtalk: { leads: visibleMatchLeads, loading: matchLoading, refreshKey: 'match-leads' },
+    greenforms: { leads: visibleGreenLeads, loading: greenLoading, refreshKey: 'green-leads' },
+    ai_leads: { leads: visibleAILeads, loading: aiLoading, refreshKey: 'ai-leads' },
   };
+
+  const tabsWithSearchMatches = useMemo(() => {
+    if (!isSearchActive) return [];
+    return LEAD_TABS
+      .map((tab) => ({
+        id: tab.id,
+        label: tab.label,
+        count: tabData[tab.id]?.leads?.length ?? 0,
+      }))
+      .filter((tab) => tab.id !== activeTab && tab.count > 0);
+  }, [activeTab, isSearchActive, tabData]);
 
   const TABS = [...LEAD_TABS, ...(isAdmin ? ADMIN_TABS : [])];
   const currentTab = TABS.find(t => t.id === activeTab);
@@ -300,6 +347,35 @@ export default function Home() {
         </div>
       </div>
 
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 px-4 py-3">
+        <div className="relative">
+          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search by name or phone..."
+            className="w-full rounded-xl border border-gray-200 bg-white dark:bg-gray-700 dark:border-gray-600 pl-9 pr-9 py-2 text-sm text-gray-700 dark:text-gray-100"
+          />
+          {searchQuery.trim() && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-base"
+              aria-label="Clear search"
+            >
+              ×
+            </button>
+          )}
+        </div>
+
+        {isSearchActive && (
+          <div className="mt-2 text-[11px] text-gray-500 dark:text-gray-300">
+            Showing results across all tabs
+          </div>
+        )}
+      </div>
+
       {/* Tabs */}
       <div className="bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 px-4 flex gap-1 py-2">
         {TABS.map(tab => {
@@ -309,10 +385,7 @@ export default function Home() {
           return (
             <button
               key={tab.id}
-              onClick={() => {
-              if (tab.id !== 'ai_leads') setAiSourceFilter('all');
-              setActiveTab(tab.id);
-            }}
+              onClick={() => setActiveTab(tab.id)}
               className={cn(
                 "flex-1 flex flex-col items-center gap-1 py-2.5 px-2 rounded-xl transition-all text-xs font-medium",
                 isActive
@@ -351,32 +424,23 @@ export default function Home() {
               <div className="space-y-3">
                 {[1,2,3].map(i => <div key={i} className="h-24 bg-gray-100 rounded-2xl animate-pulse" />)}
               </div>
-            ) : displayedAILeads.length === 0 ? (
-              <div className="text-center py-16 text-gray-400 text-sm">No AI leads available</div>
+            ) : visibleAILeads.length === 0 ? (
+              <div className="text-center py-16 text-gray-400 text-sm space-y-3">
+                <div>
+                  {isSearchActive ? 'No results in this tab — try switching tabs' : 'No AI leads available'}
+                </div>
+                {isSearchActive && tabsWithSearchMatches.length > 0 && (
+                  <div className="flex flex-wrap justify-center gap-1.5">
+                    {tabsWithSearchMatches.map((tab) => (
+                      <span key={tab.id} className="text-[10px] px-2 py-1 rounded-full bg-gray-200 text-gray-600">
+                        {tab.label}: {tab.count}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
             ) : (
               <>
-                <div className="mb-3 flex gap-1 rounded-xl bg-gray-100 p-1">
-                  {[
-                    { value: 'all', label: 'All' },
-                    { value: 'ivr', label: 'IVR' },
-                    { value: 'chatbot', label: 'Chatbot' },
-                  ].map(({ value, label }) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setAiSourceFilter(value)}
-                      className={cn(
-                        'flex-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold capitalize transition-all',
-                        aiSourceFilter === value
-                          ? 'bg-white text-gray-900 shadow-sm'
-                          : 'text-gray-500 hover:text-gray-700'
-                      )}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-
                 <div className="mb-4 rounded-2xl border border-gray-200 bg-white p-1 flex gap-1">
                   <button
                     type="button"
@@ -481,20 +545,37 @@ export default function Home() {
             )}
           </div>
         ) : (
-          <TabContent
-            leads={current.leads}
-            isLoading={current.loading}
-            tab={activeTab}
-            accentColor={currentTab.color}
-            getMessage={MESSAGES[activeTab]}
-            sentMessageKeys={sentMessageKeys}
-            sentMessages={sentMessages}
-            onMarkSent={handleMarkSent}
-            onRefresh={() => handleRefresh(current.refreshKey)}
-            templates={allTemplates}
-            isAdmin={isAdmin}
-            users={users}
-          />
+          isSearchActive && !current.loading && (current.leads?.length ?? 0) === 0 ? (
+            <div className="h-full overflow-y-auto p-4 pb-24">
+              <div className="text-center py-16 text-gray-400 text-sm space-y-3">
+                <div>No results in this tab — try switching tabs</div>
+                {tabsWithSearchMatches.length > 0 && (
+                  <div className="flex flex-wrap justify-center gap-1.5">
+                    {tabsWithSearchMatches.map((tab) => (
+                      <span key={tab.id} className="text-[10px] px-2 py-1 rounded-full bg-gray-200 text-gray-600">
+                        {tab.label}: {tab.count}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <TabContent
+              leads={current.leads}
+              isLoading={current.loading}
+              tab={activeTab}
+              accentColor={currentTab.color}
+              getMessage={MESSAGES[activeTab]}
+              sentMessageKeys={sentMessageKeys}
+              sentMessages={sentMessages}
+              onMarkSent={handleMarkSent}
+              onRefresh={() => handleRefresh(current.refreshKey)}
+              templates={allTemplates}
+              isAdmin={isAdmin}
+              users={users}
+            />
+          )
         )}
       </div>
     </div>

@@ -9,6 +9,8 @@ const OPERATIONAL_ENTITY_TABLES = {
   MatchedStockCustomer: 'matched_stock_customers',
   SentMessage: 'sent_messages',
   Template: 'templates',
+  LeadNote: 'lead_notes',
+  GreenFormClosureRequest: 'greenform_closure_requests',
   Employee: 'employees',
   Role: 'roles'
 };
@@ -451,7 +453,40 @@ export const supabaseApi = {
     Employee: createEntityAdapter('Employee'),
     Role: createEntityAdapter('Role'),
     SentMessage: createEntityAdapter('SentMessage'),
-    Template: createEntityAdapter('Template')
+    Template: createEntityAdapter('Template'),
+    LeadNote: createEntityAdapter('LeadNote'),
+    GreenFormClosureRequest: createEntityAdapter('GreenFormClosureRequest')
+  },
+
+  leadNotes: {
+    addNote: async (aiLeadId, employeeId, noteType, noteText) => {
+      const payload = {
+        ai_lead_id: aiLeadId,
+        employee_id: employeeId ?? null,
+        note_type: noteType,
+        note_text: noteText
+      };
+
+      const { data, error } = await supabase
+        .from('lead_notes')
+        .insert(payload)
+        .select('*')
+        .single();
+
+      throwIfError(error);
+      return data;
+    },
+
+    getForLead: async (aiLeadId) => {
+      const { data, error } = await supabase
+        .from('lead_notes')
+        .select('*, employee:employees!lead_notes_employee_id_fkey(first_name, last_name)')
+        .eq('ai_lead_id', aiLeadId)
+        .order('created_at', { ascending: true });
+
+      throwIfError(error);
+      return data ?? [];
+    }
   },
 
   functions: {
