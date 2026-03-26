@@ -127,33 +127,30 @@ function ResponseLogPanel({ lead, tab, onClose }) {
   const [note, setNote] = useState('');
   const [saved, setSaved] = useState(false);
 
-  const saveResponseMutation = /** @type {any} */ (useMutation({
-    mutationFn: (payload) => {
-      const responsePayload = /** @type {{ outcome: string, text: string }} */ (/** @type {unknown} */ (payload));
-      return supabaseApi.entities.LeadNote
-        ? supabaseApi.leadNotes.addNote(
-            lead.id,
-            currentUser?.employeeId ?? null,
-            'response_logged',
-            responsePayload.text
-          )
-        : supabaseApi.entities.SentMessage.create({
-            customer_name: lead?.customer_name || null,
-            mobile_number: lead?.mobile_number || lead?.phone_number || '',
-            message_text: responsePayload.text,
-            lead_source: tab === 'vana' ? 'vna' : tab === 'matchtalk' ? 'matchtalk' : 'walkin',
-            source_record_id: lead?.id ? String(lead.id) : null,
-            sent_by_employee_id: currentUser?.employeeId ?? null,
-            sent_via: 'response_log',
-            status: responsePayload.outcome,
-          });
-    },
+  const saveResponseMutation = useMutation({
+    mutationFn: (/** @type {{ outcome: string, text: string }} */ payload) => supabaseApi.entities.LeadNote
+      ? supabaseApi.leadNotes.addNote(
+          lead.id,
+          currentUser?.employeeId ?? null,
+          'response_logged',
+          payload.text
+        )
+      : supabaseApi.entities.SentMessage.create({
+          customer_name: lead?.customer_name || null,
+          mobile_number: lead?.mobile_number || lead?.phone_number || '',
+          message_text: payload.text,
+          lead_source: tab === 'vana' ? 'vna' : tab === 'matchtalk' ? 'matchtalk' : 'walkin',
+          source_record_id: lead?.id ? String(lead.id) : null,
+          sent_by_employee_id: currentUser?.employeeId ?? null,
+          sent_via: 'response_log',
+          status: payload.outcome,
+        }),
     onSuccess: () => {
       setSaved(true);
       queryClient.invalidateQueries({ queryKey: ['sent-messages'] });
       setTimeout(() => { setSaved(false); onClose(); }, 1200);
     },
-  }));
+  });
 
   const handleSave = () => {
     if (!selectedOutcome) return;
@@ -270,13 +267,34 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
     return relevantTemplates[0] || null;
   }, [sequenceTemplates, nextDue, relevantTemplates]);
 
+  // Resolve values once so all placeholder replacements use the same source
+  const resolvedCaName = isGreenForms
+    ? (resolvedGreenFormOwnerName || normalizedLead.ca_name || '')
+    : (normalizedLead.ca_name || normalizedLead.sales_team || '');
+  const resolvedPpl = resolvedCarModel || normalizedLead.ppl || normalizedLead.parent_product_line || '';
+  const resolvedPl = normalizedLead.pl || normalizedLead.product_line || '';
+  const resolvedColour = normalizedLead.colour || normalizedLead.product_description || '';
+  const resolvedChassisNo = normalizedLead.chassis_no || '';
+
   const fillPlaceholders = (msg) => msg
     .replace(/{customer_name}/g, normalizedLead.customer_name || '')
     .replace(/{name}/g, normalizedLead.customer_name || '')
-    .replace(/{ppl}/g, isGreenForms ? (resolvedCarModel || '') : (normalizedLead.ppl || ''))
-    .replace(/{pl}/g, normalizedLead.pl || '')
-    .replace(/{ca_name}/g, isGreenForms ? (resolvedGreenFormOwnerName || '') : (normalizedLead.ca_name || ''))
-    .replace(/{car}/g, isGreenForms ? (resolvedCarModel || normalizedLead.ppl || 'car') : (normalizedLead.ppl || resolvedCarModel || 'car'));
+    // Model variables
+    .replace(/{ppl}/g, resolvedPpl)
+    .replace(/{model}/g, resolvedPpl)
+    .replace(/{car}/g, resolvedPpl || 'car')
+    // Variant variables
+    .replace(/{pl}/g, resolvedPl)
+    .replace(/{variant}/g, resolvedPl)
+    // Sales person variables
+    .replace(/{ca_name}/g, resolvedCaName)
+    .replace(/{sales_person}/g, resolvedCaName)
+    .replace(/{salesperson}/g, resolvedCaName)
+    // Other variables
+    .replace(/{colour}/g, resolvedColour)
+    .replace(/{color}/g, resolvedColour)
+    .replace(/{chassis_no}/g, resolvedChassisNo)
+    .replace(/{chassis}/g, resolvedChassisNo);
 
   const resolvedDefault = dbStepTemplate
     ? fillPlaceholders(dbStepTemplate.template_text)

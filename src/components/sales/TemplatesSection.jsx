@@ -36,21 +36,32 @@ const AI_STEP_OPTIONS = [
 ];
 
 const VARIABLES = [
-  { token: '{customer_name}', hint: 'Customer name' },
-  { token: '{ppl}',           hint: 'Car model / PPL' },
-  { token: '{pl}',            hint: 'Variant / PL' },
-  { token: '{ca_name}',       hint: 'Sales advisor name' },
-  { token: '{car}',           hint: 'Car (alias for ppl)' },
+  { token: '{customer_name}', hint: 'Customer full name' },
+  { token: '{ppl}',           hint: 'Car model (e.g. Harrier, Nexon)' },
+  { token: '{pl}',            hint: 'Variant (e.g. XZ+ MT, XMS)' },
+  { token: '{ca_name}',       hint: 'Sales advisor / CA name' },
+  { token: '{chassis_no}',    hint: 'Chassis number (Match Stock)' },
+  { token: '{colour}',        hint: 'Car colour' },
+  { token: '{variant}',       hint: 'Variant (alias for pl)' },
+  { token: '{model}',         hint: 'Car model (alias for ppl)' },
 ];
 
 // Dummy values used in live preview
 const PREVIEW_DATA = {
   '{customer_name}': 'Rajesh Kumar',
   '{name}':          'Rajesh Kumar',
-  '{ppl}':           'Swift Dzire',
-  '{pl}':            'VXI MT',
+  '{ppl}':           'Harrier Adventure+',
+  '{model}':         'Harrier Adventure+',
+  '{pl}':            'XZA+ MT',
+  '{variant}':       'XZA+ MT',
   '{ca_name}':       'Amit Sharma',
-  '{car}':           'Swift Dzire',
+  '{sales_person}':  'Amit Sharma',
+  '{salesperson}':   'Amit Sharma',
+  '{car}':           'Harrier Adventure+',
+  '{colour}':        'Pristine White',
+  '{color}':         'Pristine White',
+  '{chassis_no}':    'MAT626077SKK76785',
+  '{chassis}':       'MAT626077SKK76785',
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -506,15 +517,12 @@ export default function TemplatesSection() {
   });
 
   const createMutation = /** @type {any} */ (useMutation({
-    mutationFn: (payload) => supabaseApi.entities.Template.create(payload),
+    mutationFn: (/** @type {any} */ payload) => supabaseApi.entities.Template.create(payload),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['templates'] }); closeForm(); },
   }));
 
   const updateMutation = /** @type {any} */ (useMutation({
-    mutationFn: (vars) => {
-      const { id, payload } = /** @type {{ id: any, payload: any }} */ (/** @type {unknown} */ (vars));
-      return supabaseApi.entities.Template.update(id, payload);
-    },
+    mutationFn: (/** @type {{ id: any, payload: any }} */ { id, payload }) => supabaseApi.entities.Template.update(id, payload),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['templates'] }); closeForm(); },
   }));
 

@@ -125,9 +125,23 @@ const normalizeVNAStockReadRow = (row) => {
   const id = normalizeNullable(safe.id);
   const customerName = normalizeNullable(safe.customer_name);
   const phoneNumber = normalizeNullable(safe.phone_number ?? safe.mobile_number);
-  const carModel = normalizeNullable(safe.car_model ?? safe.ppl ?? safe.model_name);
-  const caName = normalizeNullable(safe.ca_name ?? safe.employee_full_name);
-  const branch = normalizeNullable(safe.branch);
+
+  // VNA table uses parent_product_line for model, product_line for variant,
+  // product_description for colour, sales_team for the salesperson name.
+  // Fall back to legacy field names for backwards compatibility.
+  const carModel = normalizeNullable(
+    safe.parent_product_line ?? safe.car_model ?? safe.ppl ?? safe.model_name
+  );
+  const pl = normalizeNullable(
+    safe.product_line ?? safe.pl
+  );
+  const colour = normalizeNullable(
+    safe.product_description ?? safe.colour
+  );
+  const caName = normalizeNullable(
+    safe.sales_team ?? safe.ca_name ?? safe.employee_full_name
+  );
+  const branch = normalizeNullable(safe.branch ?? safe.current_location);
   const allocationStatus = normalizeNullable(safe.allocation_status ?? safe.status ?? safe.opty_status);
   const createdAt = normalizeNullable(safe.created_at ?? safe.created_date);
   const updatedAt = normalizeNullable(safe.updated_at ?? safe.updated_date);
@@ -144,13 +158,16 @@ const normalizeVNAStockReadRow = (row) => {
     branch,
     allocation_status: allocationStatus,
     chassis_no: normalizeNullable(safe.chassis_no),
-    colour: normalizeNullable(safe.colour),
+    colour,
     created_at: createdAt,
     updated_at: updatedAt,
 
-    // Compatibility projection kept only for current shared-card safety.
+    // Canonical variable names used by fillPlaceholders in LeadCard.
+    ppl: carModel,
+    pl,
+
+    // Compatibility projection kept for shared-card safety.
     mobile_number: phoneNumber,
-    ppl: normalizeNullable(safe.ppl ?? carModel),
     created_date: createdAt,
     updated_date: updatedAt,
     status: normalizeNullable(safe.status ?? allocationStatus)
@@ -168,6 +185,50 @@ const normalizeVNAStockResult = (result) => {
     return normalizeVNAStockReadRows(result);
   }
   return normalizeVNAStockReadRow(result);
+};
+
+// ─── Match Stock normalizer ──────────────────────────────────────────────────
+// matched_stock_customers uses first_name+last_name for customer, sales_team
+// for CA name, parent_product_line for model, product_line for variant,
+// product_description for colour.
+const normalizeMatchedStockReadRow = (row) => {
+  const safe = row ?? {};
+
+  // Build customer_name from first_name + last_name (with fallback to customer_name)
+  const firstName = String(safe.first_name ?? '').trim();
+  const lastName = String(safe.last_name ?? '').trim();
+  const customerName = normalizeNullable(
+    (firstName || lastName)
+      ? [firstName, lastName].filter(Boolean).join(' ')
+      : safe.customer_name
+  );
+
+  const phoneNumber = normalizeNullable(safe.mobile_number ?? safe.phone_number);
+  const carModel = normalizeNullable(safe.parent_product_line ?? safe.car_model ?? safe.ppl ?? safe.model_name);
+  const pl = normalizeNullable(safe.product_line ?? safe.pl);
+  const colour = normalizeNullable(safe.product_description ?? safe.colour);
+  const caName = normalizeNullable(safe.sales_team ?? safe.ca_name ?? safe.employee_full_name);
+  const createdAt = normalizeNullable(safe.stage_3_date ?? safe.created_at);
+
+  return {
+    ...safe,
+    customer_name: customerName,
+    phone_number: phoneNumber,
+    mobile_number: phoneNumber,
+    car_model: carModel,
+    ppl: carModel,
+    pl,
+    colour,
+    ca_name: caName,
+    chassis_no: normalizeNullable(safe.chassis_no ?? safe.original_chassis_no),
+    created_at: createdAt,
+    created_date: createdAt,
+  };
+};
+
+const normalizeMatchedStockReadRows = (rows) => {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  return safeRows.map((row) => normalizeMatchedStockReadRow(row));
 };
 
 const parseCompositeLeadId = (id) => {
@@ -374,6 +435,9 @@ const createEntityAdapter = (entityName) => {
       }
       if (entityName === 'GreenFormSubmittedLead') {
         return normalizeGreenFormReadRows(rows);
+      }
+      if (entityName === 'MatchedStockCustomer') {
+        return normalizeMatchedStockReadRows(rows);
       }
       return rows;
     },
