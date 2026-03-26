@@ -470,111 +470,6 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  </div>
  )}
 
- {/* VNA extra fields */}
- {tab ==='vna' && (
- <div className="mt-2 space-y-1 w-full">
- {[
- ['Model', typeof normalizedLead.product_line ==='string' ? (normalizedLead.product_line.trim() ||'-') : (normalizedLead.product_line ??'-')],
- ['Sales Person', typeof normalizedLead.sales_team ==='string' ? (normalizedLead.sales_team.trim() ||'-') : (normalizedLead.sales_team ??'-')],
- ['Booking ID', normalizedLead.booking_id],
- ['Chassis No', normalizedLead.chassis_no],
- ['PPL', normalizedLead.ppl],
- ['PL', normalizedLead.pl],
- ['Colour', normalizedLead.colour],
- ['CA Name', normalizedLead.ca_name],
- ['Opty ID', normalizedLead.opty_id],
- ['VC #', normalizedLead.vc_number],
- ['YF Open Date', normalizedLead.yf_open_date],
- ['Branch', normalizedLead.branch],
- ['TL Name', normalizedLead.tl_name],
- ['Allocation Status', normalizedLead.allocation_status],
- ].filter(([, val]) => val).map(([label, val]) => (
- <div key={label} className="flex items-center gap-1.5 text-xs">
- <span className="text-gray-400 w-28 flex-shrink-0">{label}:</span>
- <span className="text-gray-700 font-medium truncate flex-1 min-w-0">{val}</span>
- </div>
- ))}
- </div>
- )}
-
- {/* VNA tab (original uses'vana' id) */}
- {tab ==='vana' && (
- <div className="mt-2 space-y-1 w-full">
- {[
- ['Model', typeof normalizedLead.product_line ==='string' ? (normalizedLead.product_line.trim() ||'-') : (normalizedLead.product_line ??'-')],
- ['Sales Person', typeof normalizedLead.sales_team ==='string' ? (normalizedLead.sales_team.trim() ||'-') : (normalizedLead.sales_team ??'-')],
- ['Booking ID', normalizedLead.booking_id],
- ['Chassis No', normalizedLead.chassis_no],
- ['PPL', normalizedLead.ppl],
- ['PL', normalizedLead.pl],
- ['Colour', normalizedLead.colour],
- ['CA Name', normalizedLead.ca_name],
- ['Opty ID', normalizedLead.opty_id],
- ['VC #', normalizedLead.vc_number],
- ['YF Open Date', normalizedLead.yf_open_date],
- ['Branch', normalizedLead.branch],
- ['TL Name', normalizedLead.tl_name],
- ['Allocation Status', normalizedLead.allocation_status],
- ].filter(([, val]) => val).map(([label, val]) => (
- <div key={label} className="flex items-center gap-1.5 text-xs">
- <span className="text-gray-400 w-28 flex-shrink-0">{label}:</span>
- <span className="text-gray-700 font-medium truncate flex-1 min-w-0">{val}</span>
- </div>
- ))}
- </div>
- )}
-
- {tab ==='matchtalk' && (
- <div className="mt-2 space-y-1 w-full">
- {[
- ['Model', typeof normalizedLead.product_line ==='string' ? (normalizedLead.product_line.trim() ||'-') : (normalizedLead.product_line ??'-')],
- ['Sales Person', typeof normalizedLead.sales_team ==='string' ? (normalizedLead.sales_team.trim() ||'-') : (normalizedLead.sales_team ??'-')],
- ['Chassis No', normalizedLead.chassis_no],
- ['PPL', normalizedLead.ppl],
- ['PL', normalizedLead.pl],
- ['Colour', normalizedLead.colour],
- ['CA Name', normalizedLead.ca_name],
- ['No Status', normalizedLead.no_status],
- ['VC #', normalizedLead.vc_number],
- ['Finance Remark', normalizedLead.finance_remark],
- ['Opty ID', normalizedLead.opty_id],
- ].filter(([, val]) => val).map(([label, val]) => (
- <div key={label} className="flex items-center gap-1.5 text-xs">
- <span className="text-gray-400 w-24 flex-shrink-0">{label}:</span>
- <span className="text-gray-700 font-medium truncate flex-1 min-w-0">{val}</span>
- </div>
- ))}
- </div>
- )}
-
- {tab ==='greenforms' && (resolvedCarModel || resolvedGreenFormSource || resolvedGreenFormOwnerName || resolvedGreenFormOwnerId) && (
- <div className="mt-1.5 space-y-0.5 w-full">
- {[
- ['Model', resolvedCarModel],
- ['Source', resolvedGreenFormSource],
- ['Employee', resolvedGreenFormOwnerName],
- ].filter(([, val]) => val).map(([label, val]) => (
- <div key={label} className="flex items-center gap-1.5 text-xs">
- <span className="text-gray-400 w-14 flex-shrink-0">{label}:</span>
- <span className="text-gray-700 font-medium truncate flex-1 min-w-0">{val}</span>
- </div>
- ))}
- </div>
- )}
-
- {/* Source / assignment pills */}
- <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
- {(isGreenForms ? resolvedGreenFormSource : normalizedLead.lead_source) && (
- <span className="text-[10px] font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
- {isGreenForms ? resolvedGreenFormSource : normalizedLead.lead_source}
- </span>
- )}
- {(isGreenForms ? resolvedGreenFormOwnerId : normalizedLead.assigned_to) && (
- <span className="text-[10px] font-medium text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
- 👤 {isGreenForms ? resolvedGreenFormOwnerId : normalizedLead.assigned_to.split('@')[0]}
- </span>
- )}
- </div>
  </div>
 
  {/* Action buttons */}
@@ -642,6 +537,72 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  </div>
  )}
  </div>
+
+
+        {/* ── Extra fields — full width below header ── */}
+        {(tab === 'vna' || tab === 'vana') && (
+          <div className="mt-3 space-y-1 w-full">
+            {[
+              ['Model', typeof normalizedLead.product_line === 'string' ? (normalizedLead.product_line.trim() || '-') : (normalizedLead.product_line ?? '-')],
+              ['Sales Person', typeof normalizedLead.sales_team === 'string' ? (normalizedLead.sales_team.trim() || '-') : (normalizedLead.sales_team ?? '-')],
+              ['Booking ID', normalizedLead.booking_id],
+              ['Chassis No', normalizedLead.chassis_no],
+              ['PPL', normalizedLead.ppl],
+              ['PL', normalizedLead.pl],
+              ['Colour', normalizedLead.colour],
+              ['CA Name', normalizedLead.ca_name],
+              ['Opty ID', normalizedLead.opty_id],
+              ['VC #', normalizedLead.vc_number],
+              ['YF Open Date', normalizedLead.yf_open_date],
+              ['Branch', normalizedLead.branch],
+              ['TL Name', normalizedLead.tl_name],
+              ['Allocation Status', normalizedLead.allocation_status],
+            ].filter(([, val]) => val).map(([label, val]) => (
+              <div key={label} className="flex items-center gap-1.5 text-xs">
+                <span className="text-gray-400 w-28 flex-shrink-0">{label}:</span>
+                <span className="text-gray-700 font-medium">{val}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {tab === 'matchtalk' && (
+          <div className="mt-3 space-y-1 w-full">
+            {[
+              ['Model', typeof normalizedLead.product_line === 'string' ? (normalizedLead.product_line.trim() || '-') : (normalizedLead.product_line ?? '-')],
+              ['Sales Person', typeof normalizedLead.sales_team === 'string' ? (normalizedLead.sales_team.trim() || '-') : (normalizedLead.sales_team ?? '-')],
+              ['Chassis No', normalizedLead.chassis_no],
+              ['PPL', normalizedLead.ppl],
+              ['PL', normalizedLead.pl],
+              ['Colour', normalizedLead.colour],
+              ['CA Name', normalizedLead.ca_name],
+              ['No Status', normalizedLead.no_status],
+              ['VC #', normalizedLead.vc_number],
+              ['Finance Remark', normalizedLead.finance_remark],
+              ['Opty ID', normalizedLead.opty_id],
+            ].filter(([, val]) => val).map(([label, val]) => (
+              <div key={label} className="flex items-center gap-1.5 text-xs">
+                <span className="text-gray-400 w-28 flex-shrink-0">{label}:</span>
+                <span className="text-gray-700 font-medium">{val}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {tab === 'greenforms' && (resolvedCarModel || resolvedGreenFormSource || resolvedGreenFormOwnerName) && (
+          <div className="mt-3 space-y-1 w-full">
+            {[
+              ['Model', resolvedCarModel],
+              ['Source', resolvedGreenFormSource],
+              ['Employee', resolvedGreenFormOwnerName],
+            ].filter(([, val]) => val).map(([label, val]) => (
+              <div key={label} className="flex items-center gap-1.5 text-xs">
+                <span className="text-gray-400 w-20 flex-shrink-0">{label}:</span>
+                <span className="text-gray-700 font-medium">{val}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
  {/* Response Log Button */}
  {isTemplateDrivenTab && sentCount > 0 && (
