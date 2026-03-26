@@ -1,12 +1,11 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { Search, RefreshCw, Inbox, CheckSquare, Square, Send, X } from 'lucide-react';
+import { Search, RefreshCw, Inbox } from 'lucide-react';
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { SelectItem } from "@/components/ui/select";
 import MobileSelect from '@/components/shared/MobileSelect';
 import { getSentMessageKeyForLead } from '@/utils/sentMessageUtils';
 import { differenceInDays } from 'date-fns';
-import { buildWhatsAppUrl } from '@/utils/phone';
 import { cn } from '@/lib/utils';
 
 import LeadCard from './LeadCard';
@@ -99,121 +98,6 @@ function isDueToday(lead, tab, sentMessages, templates) {
   return daysSince !== null && daysSince >= nextDay;
 }
 
-// ─── Bulk send panel ───────────────────────────────────────────────────────────
-function BulkSendPanel({ selectedLeads, leads, tab, templates, sentMessages, onMarkSent, onClose }) {
-  const [sending, setSending] = useState(false);
-  const [sentIdx, setSentIdx] = useState(0);
-
-  const CATEGORY_ALIASES = {
-    vana: ['vana', 'vna'], matchtalk: ['matchtalk', 'match_stock', 'match'],
-    greenforms: ['greenforms', 'green_forms', 'greenform'], ai_leads: ['ai_leads', 'ai-leads', 'ai'],
-  };
-  const toCanonical = (v) => {
-    const t = String(v || '').trim().toLowerCase();
-    if (!t || t === 'all' || t === 'general') return t;
-    const e = Object.entries(CATEGORY_ALIASES).find(([, a]) => a.includes(t));
-    return e ? e[0] : t;
-  };
-
-  const relevantTemplates = useMemo(() => {
-    const safe = Array.isArray(templates) ? templates : [];
-    return safe.filter(t => {
-      if (t?.is_active === false) return false;
-      const cat = toCanonical(t?.category || t?.source || '');
-      return cat === tab || cat === 'all' || cat === 'general';
-    });
-  }, [templates, tab]);
-
-  const firstTemplate = relevantTemplates.find(t => toInt(t?.step_number, 1) === 1) || relevantTemplates[0];
-
-  const fillFor = (lead, tmpl) => {
-    const name = lead?.customer_name || '';
-    const ppl = lead?.ppl || lead?.car_model || lead?.model_name || '';
-    const pl = lead?.pl || '';
-    const ca = lead?.ca_name || lead?.employee_full_name || '';
-    return (tmpl?.template_text || '')
-      .replace(/{customer_name}/g, name).replace(/{name}/g, name)
-      .replace(/{ppl}/g, ppl).replace(/{pl}/g, pl)
-      .replace(/{ca_name}/g, ca).replace(/{car}/g, ppl || 'car');
-  };
-
-  const selectedLeadObjects = leads.filter(l => selectedLeads.has(l.id));
-
-  const handleStartBulk = async () => {
-    if (!firstTemplate || selectedLeadObjects.length === 0) return;
-    setSending(true);
-    for (let i = 0; i < selectedLeadObjects.length; i++) {
-      const lead = selectedLeadObjects[i];
-      const phone = lead?.phone_number || lead?.mobile_number || '';
-      const msg = fillFor(lead, firstTemplate);
-      const url = buildWhatsAppUrl(phone, msg);
-      if (url) {
-        window.open(url, '_blank', 'noopener,noreferrer');
-        onMarkSent({ lead, leadType: tab, messageText: msg, templateId: firstTemplate?.id ?? null });
-      }
-      setSentIdx(i + 1);
-      if (i < selectedLeadObjects.length - 1) {
-        await new Promise(r => setTimeout(r, 800));
-      }
-    }
-    setSending(false);
-    onClose();
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
-      <div className="bg-white dark:bg-gray-800 rounded-t-2xl w-full max-w-lg p-5 shadow-2xl">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-gray-900 dark:text-white text-sm">
-            Bulk Send — {selectedLeads.size} leads selected
-          </h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {firstTemplate ? (
-          <>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Template to send:</p>
-            <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-3 text-xs text-gray-600 dark:text-gray-300 mb-4 max-h-28 overflow-y-auto whitespace-pre-wrap">
-              {firstTemplate.template_text}
-            </div>
-            <p className="text-[11px] text-orange-600 dark:text-orange-400 mb-4">
-              WhatsApp will open once per lead in sequence. Stay on this screen until done.
-            </p>
-            {sending && (
-              <div className="mb-4">
-                <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                  <span>Sending {sentIdx} of {selectedLeadObjects.length}…</span>
-                  <span>{Math.round((sentIdx / selectedLeadObjects.length) * 100)}%</span>
-                </div>
-                <div className="h-2 bg-gray-100 dark:bg-gray-600 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-green-500 rounded-full transition-all"
-                    style={{ width: `${(sentIdx / selectedLeadObjects.length) * 100}%` }}
-                  />
-                </div>
-              </div>
-            )}
-            <button
-              onClick={handleStartBulk}
-              disabled={sending}
-              className="w-full py-3 rounded-xl bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-semibold text-sm flex items-center justify-center gap-2"
-            >
-              <Send className="w-4 h-4" />
-              {sending ? `Sending (${sentIdx}/${selectedLeadObjects.length})…` : 'Start Bulk Send'}
-            </button>
-          </>
-        ) : (
-          <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
-            No active templates configured for this tab. Add templates in the Templates section first.
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ─── Main TabContent ───────────────────────────────────────────────────────────
 export default function TabContent({ leads, isLoading, tab, accentColor, getMessage, sentMessageKeys = new Set(), sentMessages = [], onMarkSent, onRefresh, templates, isAdmin, users = [] }) {
   const [search, setSearch] = useState('');
@@ -225,11 +109,6 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
   const [sourceFilter, setSourceFilter] = useState('all');
   const [branchFilter, setBranchFilter] = useState('all');
   const [isPulling, setIsPulling] = useState(false);
-
-  // Bulk send state
-  const [bulkMode, setBulkMode] = useState(false);
-  const [selectedLeads, setSelectedLeads] = useState(new Set());
-  const [showBulkPanel, setShowBulkPanel] = useState(false);
 
   const scrollRef = useRef(null);
   const startTouchRef = useRef(null);
@@ -377,22 +256,6 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
     }
   };
 
-  const toggleBulkMode = () => {
-    setBulkMode(b => !b);
-    setSelectedLeads(new Set());
-  };
-
-  const toggleLeadSelection = (leadId) => {
-    setSelectedLeads(prev => {
-      const next = new Set(prev);
-      if (next.has(leadId)) next.delete(leadId); else next.add(leadId);
-      return next;
-    });
-  };
-
-  const selectAll = () => setSelectedLeads(new Set(filtered.map(l => l.id)));
-  const clearAll = () => setSelectedLeads(new Set());
-
   const isTemplateDriven = tab === 'vana' || tab === 'matchtalk' || tab === 'greenforms';
 
   return (
@@ -440,39 +303,7 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
           >
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
           </UIButton>
-          {/* Bulk mode toggle — only for template-driven tabs */}
-          {isTemplateDriven && (
-            <UIButton
-              variant={bulkMode ? "default" : "outline"}
-              size="icon"
-              onClick={toggleBulkMode}
-              className={cn("h-10 w-10 rounded-xl", bulkMode ? "bg-gray-900 dark:bg-gray-100 dark:text-gray-900 text-white" : "border-gray-200 dark:border-gray-600")}
-              title="Bulk send mode"
-            >
-              <CheckSquare className="w-4 h-4" />
-            </UIButton>
-          )}
         </div>
-
-        {/* Bulk select toolbar */}
-        {bulkMode && (
-          <div className="flex items-center justify-between bg-gray-900 dark:bg-gray-700 rounded-xl px-3 py-2">
-            <div className="flex items-center gap-2">
-              <button onClick={selectAll} className="text-[11px] text-white/70 hover:text-white">Select all</button>
-              <span className="text-white/30">·</span>
-              <button onClick={clearAll} className="text-[11px] text-white/70 hover:text-white">Clear</button>
-              <span className="text-[11px] text-white font-semibold">{selectedLeads.size} selected</span>
-            </div>
-            <button
-              onClick={() => selectedLeads.size > 0 && setShowBulkPanel(true)}
-              disabled={selectedLeads.size === 0}
-              className="flex items-center gap-1.5 bg-green-500 hover:bg-green-600 disabled:opacity-40 text-white text-[11px] font-semibold px-3 py-1.5 rounded-lg"
-            >
-              <Send className="w-3.5 h-3.5" />
-              Send ({selectedLeads.size})
-            </button>
-          </div>
-        )}
 
         <div className="flex gap-2 flex-wrap">
           {carModels.length > 0 && (
@@ -571,26 +402,9 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
             {filtered.map(lead => {
               const leadKey = getSentMessageKeyForLead(lead, tab);
               const isLeadSent = Boolean(leadKey && sentMessageKeys.has(leadKey));
-              const isSelected = selectedLeads.has(lead.id);
               return (
                 <div key={lead.id} className="relative">
-                  {/* Bulk select checkbox overlay */}
-                  {bulkMode && (
-                    <button
-                      onClick={() => toggleLeadSelection(lead.id)}
-                      className={cn(
-                        "absolute left-0 top-0 bottom-0 w-10 z-10 flex items-center justify-center rounded-l-2xl transition-colors",
-                        isSelected ? "bg-gray-900 dark:bg-gray-100" : "bg-gray-100 dark:bg-gray-700"
-                      )}
-                    >
-                      {isSelected
-                        ? <CheckSquare className="w-4 h-4 text-white dark:text-gray-900" />
-                        : <Square className="w-4 h-4 text-gray-400" />
-                      }
-                    </button>
-                  )}
-                  <div className={cn(bulkMode && "pl-10")}>
-                    <LeadCard
+                  <LeadCard
                       lead={lead}
                       tab={tab}
                       accentColor={accentColor}
@@ -600,26 +414,12 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
                       onMarkSent={onMarkSent}
                       templates={templates}
                     />
-                  </div>
                 </div>
               );
             })}
           </div>
         )}
       </div>
-
-      {/* Bulk send modal */}
-      {showBulkPanel && (
-        <BulkSendPanel
-          selectedLeads={selectedLeads}
-          leads={filtered}
-          tab={tab}
-          templates={templates}
-          sentMessages={sentMessages}
-          onMarkSent={onMarkSent}
-          onClose={() => { setShowBulkPanel(false); setBulkMode(false); setSelectedLeads(new Set()); }}
-        />
-      )}
     </div>
   );
 }
