@@ -491,7 +491,7 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  ].filter(([, val]) => val).map(([label, val]) => (
  <div key={label} className="flex items-center gap-1.5 text-xs">
  <span className="text-gray-400 w-28 flex-shrink-0">{label}:</span>
- <span className="text-gray-700 font-medium truncate">{val}</span>
+ <span className="text-gray-700 font-medium truncate flex-1 min-w-0">{val}</span>
  </div>
  ))}
  </div>
@@ -518,7 +518,7 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  ].filter(([, val]) => val).map(([label, val]) => (
  <div key={label} className="flex items-center gap-1.5 text-xs">
  <span className="text-gray-400 w-28 flex-shrink-0">{label}:</span>
- <span className="text-gray-700 font-medium truncate">{val}</span>
+ <span className="text-gray-700 font-medium truncate flex-1 min-w-0">{val}</span>
  </div>
  ))}
  </div>
@@ -541,7 +541,7 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  ].filter(([, val]) => val).map(([label, val]) => (
  <div key={label} className="flex items-center gap-1.5 text-xs">
  <span className="text-gray-400 w-24 flex-shrink-0">{label}:</span>
- <span className="text-gray-700 font-medium truncate">{val}</span>
+ <span className="text-gray-700 font-medium truncate flex-1 min-w-0">{val}</span>
  </div>
  ))}
  </div>
@@ -556,7 +556,7 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  ].filter(([, val]) => val).map(([label, val]) => (
  <div key={label} className="flex items-center gap-1.5 text-xs">
  <span className="text-gray-400 w-14 flex-shrink-0">{label}:</span>
- <span className="text-gray-700 font-medium truncate">{val}</span>
+ <span className="text-gray-700 font-medium truncate flex-1 min-w-0">{val}</span>
  </div>
  ))}
  </div>
