@@ -44,10 +44,6 @@ export default function Home() {
 
   const isAdmin = isAdminUser(currentUser);
 
-  if (isLoadingAuth) {
-    return <div>Loading...</div>;
-  }
-
   const { data: vanaLeads = [], isLoading: vanaLoading } = useQuery({
     queryKey: ['vna-stock'],
     queryFn: () => supabaseApi.entities.VNAStock.list('-created_at'),
@@ -410,10 +406,10 @@ export default function Home() {
 
       {/* Content */}
       <div className="flex-1 overflow-hidden">
-        {isLoadingProfile && !currentUser ? (
+        {(isLoadingAuth || (isLoadingProfile && !currentUser)) ? (
           <div className="h-full overflow-y-auto p-4 pb-24">
             <div className="rounded-2xl border border-gray-200 bg-white p-4 text-sm text-gray-500">
-              Loading your profile...
+              Loading...
             </div>
           </div>
         ) : isTemplatesTab ? (
