@@ -353,10 +353,15 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  window.location.href = callLink;
  };
 
- // Step progress dots — total steps in the sequence
+ // Step progress dots — total steps in the sequence.
+ // Use sequenceTemplates count if available, then fall back to the actual number
+ // of relevant templates for this tab. Only use the legacy FOLLOW_UP_DAYS length
+ // as a last resort when there are no templates configured at all.
  const totalSteps = sequenceTemplates.length > 0
- ? sequenceTemplates.length
- : (tab ==='matchtalk' ? MATCHTALK_FOLLOW_UP_DAYS : FOLLOW_UP_DAYS).length;
+   ? sequenceTemplates.length
+   : relevantTemplates.length > 0
+     ? relevantTemplates.length
+     : (tab ==='matchtalk' ? MATCHTALK_FOLLOW_UP_DAYS : FOLLOW_UP_DAYS).length;
  const sentCount = historyForLead.length;
 
  // Urgency level for border color
