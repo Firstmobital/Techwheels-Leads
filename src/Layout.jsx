@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from'react';
-import { Link, useLocation } from'react-router-dom';
+import { Link, useLocation, useNavigate } from'react-router-dom';
 import { createPageUrl } from'@/utils';
 import { MessageCircle, Users, BarChart2, LogOut, Bell, Award } from'lucide-react';
 import { cn } from'@/lib/utils';
@@ -12,6 +12,7 @@ import { isAdminUser } from'@/lib/authUserUtils';
 export default function Layout({ children, currentPageName }) {
  const [showLogoutDialog, setShowLogoutDialog] = useState(false);
  const location = useLocation();
+ const navigate = useNavigate();
  const { logout } = useAuth();
  const { currentUser } = useCurrentUser();
  const isAdmin = isAdminUser(currentUser);
@@ -24,6 +25,8 @@ export default function Layout({ children, currentPageName }) {
  const handleLogout = async () => {
  await logout();
  setShowLogoutDialog(false);
+ const loginPath = import.meta.env.VITE_LOGIN_PATH ||'/login';
+ navigate(loginPath, { replace: true });
  };
 
  const isHome = currentPageName ==='Home';

@@ -9,7 +9,6 @@ const defaultAuthContextValue = {
   isLoadingAuth: true,
   authError: null,
   logout: async () => {},
-  navigateToLogin: () => {},
   checkSession: async () => {},
   updateProfile: async () => null,
 };
@@ -114,26 +113,9 @@ export const AuthProvider = ({ children }) => {
     return authUser;
   };
 
-  const logout = async (shouldRedirect = true) => {
+  const logout = async () => {
     await supabase.auth.signOut();
     setUnauthenticatedState();
-
-    if (shouldRedirect && typeof window !== 'undefined') {
-      navigateToLogin();
-    }
-  };
-
-  const navigateToLogin = () => {
-    if (typeof window === 'undefined') return;
-
-    const loginPath = import.meta.env.VITE_LOGIN_PATH || '/login';
-    const normalizedPath = loginPath.startsWith('/') ? loginPath : `/${loginPath}`;
-    const currentPath = window.location.pathname;
-
-    if (currentPath !== normalizedPath) {
-      window.history.pushState({}, '', normalizedPath);
-      window.dispatchEvent(new PopStateEvent('popstate'));
-    }
   };
 
   return (
@@ -146,7 +128,6 @@ export const AuthProvider = ({ children }) => {
         isLoadingAuth,
         authError,
         logout,
-        navigateToLogin,
         checkSession,
         updateProfile,
       }}
