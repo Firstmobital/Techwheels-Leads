@@ -4,7 +4,7 @@ import { ChevronLeft, Sparkles } from 'lucide-react';
 import { createPageUrl } from '@/utils';
 import { cn } from '@/lib/utils';
 
-export default function AppHeader({ currentPageName, children }) {
+export default function AppHeader({ currentPageName, children = {} }) {
   const location = useLocation();
   const navigate = useNavigate();
   const isHome = currentPageName === 'Home';
