@@ -558,6 +558,7 @@ export default function Home() {
             </div>
           ) : (
             <TabContent
+              key={activeTab}
               leads={current.leads}
               isLoading={current.loading}
               tab={activeTab}
