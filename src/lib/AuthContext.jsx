@@ -67,8 +67,15 @@ export const AuthProvider = ({ children }) => {
 
       setAuthenticatedState(session);
     } catch (error) {
-      logAuthError('Session check failed:', error);
-      setAuthError({ type: 'session_error', message: 'Unable to verify session' });
+      const msg = String(error?.message || '').toLowerCase();
+      // Expired or missing refresh token — clear everything and go to login
+      if (msg.includes('refresh token') || msg.includes('invalid_grant') || error?.status === 400) {
+        await supabase.auth.signOut();
+        setUnauthenticatedState();
+      } else {
+        logAuthError('Session check failed:', error);
+        setAuthError({ type: 'session_error', message: 'Unable to verify session' });
+      }
     } finally {
       setIsLoadingAuth(false);
     }
@@ -79,8 +86,15 @@ export const AuthProvider = ({ children }) => {
 
     checkSession();
 
-    const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isMounted) return;
+
+      // Refresh token invalid — clear local session and redirect to login
+      if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED' && !session) {
+        await supabase.auth.signOut();
+        setUnauthenticatedState();
+        return;
+      }
 
       if (!session?.user) {
         setUnauthenticatedState();
