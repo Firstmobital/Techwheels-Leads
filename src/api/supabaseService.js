@@ -626,16 +626,30 @@ export const supabaseApi = {
 
   walkinFollowup: {
     getQueue: async () => {
-      // Fetch showroom_walkins with car and salesperson data
-      const { data: allWalkins, error: walkinError } = await supabase
-        .from('showroom_walkins')
-        .select(`
-          *,
-          car:car!showroom_walkins_car_id_fkey(name),
-          salesperson:employees!showroom_walkins_salesperson_id_fkey(first_name, last_name)
-        `);
-      
-      throwIfError(walkinError);
+      // Fetch showroom_walkins with car and salesperson data, paginating through all records
+      let allWalkins = [];
+      const pageSize = 1000;
+      let offset = 0;
+
+      while (true) {
+        const { data: walkinPage, error: walkinError } = await supabase
+          .from('showroom_walkins')
+          .select(`
+            *,
+            car:car!showroom_walkins_car_id_fkey(name),
+            salesperson:employees!showroom_walkins_salesperson_id_fkey(first_name, last_name)
+          `)
+          .range(offset, offset + pageSize - 1);
+        
+        throwIfError(walkinError);
+        
+        const rows = walkinPage ?? [];
+        if (rows.length === 0) break;
+        
+        allWalkins = allWalkins.concat(rows);
+        if (rows.length < pageSize) break; // Last page
+        offset += pageSize;
+      }
 
       // Filter for non-final statuses
       const walkins = (allWalkins ?? []).filter(
