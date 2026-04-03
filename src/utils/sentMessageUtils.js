@@ -1,3 +1,4 @@
+// @ts-nocheck
 const VALID_LEAD_SOURCES = new Set(['walkin', 'ivr', 'ai', 'vna', 'matchtalk']);
 const AI_FOLLOWUP_STEPS = ['M1', 'M2', 'M3', 'M4'];
 const AI_FOLLOWUP_DAY_OFFSETS = {

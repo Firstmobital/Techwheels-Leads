@@ -336,6 +336,7 @@ export default function Home() {
   const current = tabData[activeTab];
   const isTemplatesTab = activeTab === 'templates';
   const isAILeadsTab = activeTab === 'ai_leads';
+  const isWalkinBackendTab = activeTab === 'walkin-backend';
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col max-w-lg mx-auto">
@@ -417,6 +418,8 @@ export default function Home() {
           </div>
         ) : isTemplatesTab ? (
           <TemplatesSection />
+        ) : isWalkinBackendTab ? (
+          <WalkinFollowupTab />
         ) : isAILeadsTab ? (
           <div className="h-full overflow-y-auto p-4 pb-24">
             {current.loading ? (
