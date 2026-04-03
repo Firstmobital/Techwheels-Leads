@@ -420,18 +420,50 @@ const createEntityAdapter = (entityName) => {
 
   return {
     list: async (sort, limit) => {
-      let query = supabase.from(table).select('*');
-      query = applySort(query, sort, entityName);
-      // If no explicit limit, fetch all records (PostgREST default is 1000 rows)
+      // If explicit limit, use single query with range
       if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
+        let query = supabase.from(table).select('*');
+        query = applySort(query, sort, entityName);
         query = query.range(0, limit - 1);
-      } else {
-        // Remove PostgREST 1000-row default by setting a very high range
-        query = query.range(0, 999999);
+        const { data, error } = await query;
+        throwIfError(error);
+        const rows = data ?? [];
+        if (entityName === 'AILead') {
+          return normalizeAILeadReadRows(rows);
+        }
+        if (entityName === 'VNAStock') {
+          return normalizeVNAStockReadRows(rows);
+        }
+        if (entityName === 'GreenFormSubmittedLead') {
+          return normalizeGreenFormReadRows(rows);
+        }
+        if (entityName === 'MatchedStockCustomer') {
+          return normalizeMatchedStockReadRows(rows);
+        }
+        return rows;
       }
-      const { data, error } = await query;
-      throwIfError(error);
-      const rows = data ?? [];
+
+      // No limit: fetch all records by paginating through 1000-row chunks
+      const pageSize = 1000;
+      let allRows = [];
+      let offset = 0;
+
+      while (true) {
+        let query = supabase.from(table).select('*');
+        query = applySort(query, sort, entityName);
+        query = query.range(offset, offset + pageSize - 1);
+        const { data, error } = await query;
+        throwIfError(error);
+
+        const rows = data ?? [];
+        if (rows.length === 0) break;
+
+        allRows = allRows.concat(rows);
+        if (rows.length < pageSize) break; // Last page
+        offset += pageSize;
+      }
+
+      const rows = allRows;
       if (entityName === 'AILead') {
         return normalizeAILeadReadRows(rows);
       }
