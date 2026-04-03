@@ -606,20 +606,31 @@ export const supabaseApi = {
         (w) => !['booked', 'lost'].includes(w.followup_status)
       );
 
-      // Fetch call history to get counts and last verdicts
-      const walkinIds = walkins.map((w) => w.id);
+      // Fetch call history to get counts and last verdicts.
+      // Query in chunks to avoid oversized URL/query-string when queue is large.
+      const walkinIds = Array.from(new Set(walkins.map((w) => w.id).filter(Boolean)));
       let callsByWalkin = new Map();
-      
+
       if (walkinIds.length > 0) {
-        const { data: callHistory, error: callError } = await supabase
-          .from('walkin_followup_calls')
-          .select('walkin_id, verdict, created_at')
-          .in('walkin_id', walkinIds);
-        
-        throwIfError(callError);
+        const idChunkSize = 200;
+        const allCalls = [];
+
+        for (let index = 0; index < walkinIds.length; index += idChunkSize) {
+          const idChunk = walkinIds.slice(index, index + idChunkSize);
+          const { data: callHistory, error: callError } = await supabase
+            .from('walkin_followup_calls')
+            .select('walkin_id, verdict, created_at')
+            .in('walkin_id', idChunk);
+
+          throwIfError(callError);
+
+          if (Array.isArray(callHistory) && callHistory.length > 0) {
+            allCalls.push(...callHistory);
+          }
+        }
 
         // Map call history by walkin_id
-        (callHistory ?? []).forEach((call) => {
+        allCalls.forEach((call) => {
           if (!callsByWalkin.has(call.walkin_id)) {
             callsByWalkin.set(call.walkin_id, []);
           }
