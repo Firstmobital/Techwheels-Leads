@@ -422,8 +422,12 @@ const createEntityAdapter = (entityName) => {
     list: async (sort, limit) => {
       let query = supabase.from(table).select('*');
       query = applySort(query, sort, entityName);
+      // If no explicit limit, fetch all records (PostgREST default is 1000 rows)
       if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
         query = query.range(0, limit - 1);
+      } else {
+        // Remove PostgREST 1000-row default by setting a very high range
+        query = query.range(0, 999999);
       }
       const { data, error } = await query;
       throwIfError(error);
