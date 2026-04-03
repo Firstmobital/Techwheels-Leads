@@ -595,8 +595,8 @@ export const supabaseApi = {
         .from('showroom_walkins')
         .select(`
           *,
-          car:car_id(name),
-          salesperson:salesperson_id(first_name, last_name)
+          car:car!showroom_walkins_car_id_fkey(name),
+          salesperson:employees!showroom_walkins_salesperson_id_fkey(first_name, last_name)
         `);
       
       throwIfError(walkinError);
