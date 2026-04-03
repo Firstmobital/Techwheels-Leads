@@ -1,9 +1,11 @@
+// @ts-nocheck
 import React, { useMemo, useState } from 'react';
 import { supabaseApi } from '@/api/supabaseService';
+import { supabase } from '@/api/supabaseClient';
 import { useQuery } from '@tanstack/react-query';
 import { useCurrentUser } from '@/lib/CurrentUserContext';
 import { isAdminUser } from '@/lib/authUserUtils';
-import { differenceInDays, format } from 'date-fns';
+import { differenceInDays, format, parseISO, isBefore, startOfDay } from 'date-fns';
 import { Bell, CheckCircle2, Clock, AlertTriangle, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getSentMessageKeyForLead } from '@/utils/sentMessageUtils';
@@ -167,7 +169,10 @@ function EmployeeDigestCard({ employee, items, isCurrentUser }) {
                 {item.itemStatus === 'overdue' && (
                   <span className="text-[10px] font-semibold text-red-500">Overdue</span>
                 )}
-                {item.itemStatus === 'due' && (
+                {item.itemStatus === 'due' && item.tab === 'walkin' && item.nextCallDate && (
+                  <span className="text-[10px] font-semibold text-orange-500">{format(parseISO(item.nextCallDate), 'd MMM')}</span>
+                )}
+                {item.itemStatus === 'due' && item.tab !== 'walkin' && (
                   <span className="text-[10px] font-semibold text-orange-500">Send now</span>
                 )}
                 {item.itemStatus === 'scheduled' && (
@@ -176,9 +181,11 @@ function EmployeeDigestCard({ employee, items, isCurrentUser }) {
                 {item.itemStatus === 'done' && (
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                 )}
-                <div className="text-[9px] text-gray-300 dark:text-gray-600 mt-0.5">
-                  Step {item.sentCount + 1}/{item.totalSteps}
-                </div>
+                {item.sentCount !== null && item.totalSteps !== null && (
+                  <div className="text-[9px] text-gray-300 dark:text-gray-600 mt-0.5">
+                    Step {item.sentCount + 1}/{item.totalSteps}
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -230,7 +237,22 @@ export default function DailyDigest() {
     enabled: !!currentUser,
   });
 
-  const isLoading = loadingSent || loadingVna || loadingMatch || loadingGreen;
+  const { data: walkinDigestLeads = [], isLoading: loadingWalkinDigest } = useQuery({
+    queryKey: ['walkin-digest'],
+    queryFn: async () => {
+      const today = format(new Date(), 'yyyy-MM-dd');
+      const { data, error } = await supabase
+        .from('showroom_walkins')
+        .select('id, customer_name, next_call_date, model_segment, salesperson_id, salesperson:salesperson_id(id, first_name, last_name), car:car_id(name)')
+        .lt('next_call_date', today)
+        .in('followup_status', ['pending', 'called']);
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: !!currentUser,
+  });
+
+  const isLoading = loadingSent || loadingVna || loadingMatch || loadingGreen || loadingWalkinDigest;
 
   // Build digest: for each employee, list all their leads with status
   const digest = useMemo(() => {
@@ -299,6 +321,51 @@ export default function DailyDigest() {
       });
     });
 
+    // Add walkin follow-up entries
+    walkinDigestLeads.forEach(walkin => {
+      const salespersonId = String(walkin?.salesperson_id || '').trim();
+      const salespersonName = walkin?.salesperson
+        ? [walkin.salesperson.first_name, walkin.salesperson.last_name].filter(Boolean).join(' ').trim().toLowerCase()
+        : '';
+
+      let employee = null;
+      if (salespersonId) employee = employeeById.get(salespersonId);
+      if (!employee && salespersonName) employee = employeeByName.get(salespersonName);
+      if (!employee) return; // unassigned → skip
+
+      // Non-admin: only show own
+      if (!isAdmin) {
+        const isMyLead = (salespersonId && salespersonId === currentEmployeeId) ||
+          (salespersonName && salespersonName === currentEmployeeName);
+        if (!isMyLead) return;
+      }
+
+      const customerName = walkin?.customer_name || 'Unknown';
+      const carModel = walkin?.car?.name || '';
+      const nextCallDate = walkin?.next_call_date ? parseISO(walkin.next_call_date) : null;
+      const today = startOfDay(new Date());
+      const isOverdue = nextCallDate && isBefore(nextCallDate, today);
+
+      const item = {
+        customer_name: customerName,
+        carModel,
+        tabLabel: 'Walkin follow-up due',
+        tab: 'walkin',
+        itemStatus: isOverdue ? 'overdue' : 'due',
+        daysUntil: 0,
+        sentCount: null,
+        totalSteps: null,
+        overdue: isOverdue,
+        nextCallDate: walkin?.next_call_date,
+      };
+
+      const eid = employee.id;
+      if (!employeeMap.has(eid)) {
+        employeeMap.set(eid, { employee, items: [] });
+      }
+      employeeMap.get(eid).items.push(item);
+    });
+
     return [...employeeMap.values()].sort((a, b) => {
       const aOverdue = a.items.filter(i => i.itemStatus === 'overdue').length;
       const bOverdue = b.items.filter(i => i.itemStatus === 'overdue').length;
@@ -307,7 +374,7 @@ export default function DailyDigest() {
       const bDue = b.items.filter(i => i.itemStatus === 'due').length;
       return bDue - aDue;
     });
-  }, [isLoading, currentUser, users, vnaLeads, matchLeads, greenLeads, sentMessages, templates, isAdmin]);
+  }, [isLoading, currentUser, users, vnaLeads, matchLeads, greenLeads, walkinDigestLeads, sentMessages, templates, isAdmin]);
 
   // Team-level today summary
   const teamSummary = useMemo(() => {

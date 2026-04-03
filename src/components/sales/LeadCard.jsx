@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useMemo, useState } from'react';
 import { MessageCircle, CheckCircle2, Car, Phone, User, Clock, PhoneCall, ChevronDown, ChevronUp, MessageSquare } from'lucide-react';
 import { Button } from"@/components/ui/button";

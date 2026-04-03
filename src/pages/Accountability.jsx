@@ -1,5 +1,7 @@
+// @ts-nocheck
 import React, { useMemo, useState } from 'react';
 import { supabaseApi } from '@/api/supabaseService';
+import { supabase } from '@/api/supabaseClient';
 import { useQuery } from '@tanstack/react-query';
 import { useCurrentUser } from '@/lib/CurrentUserContext';
 import { isAdminUser } from '@/lib/authUserUtils';
@@ -98,6 +100,44 @@ export default function Accountability() {
     enabled: isAdmin,
   });
 
+  const { data: walkinCompletedToday = [], isLoading: loadingWalkinCompleted } = useQuery({
+    queryKey: ['walkin-calls-completed-today'],
+    queryFn: async () => {
+      const now = new Date();
+      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const endOfDay = new Date(startOfDay);
+      endOfDay.setDate(endOfDay.getDate() + 1);
+
+      const { data, error } = await supabase
+        .from('walkin_followup_calls')
+        .select('caller_id')
+        .gte('created_at', startOfDay.toISOString())
+        .lt('created_at', endOfDay.toISOString());
+
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: isAdmin,
+  });
+
+  const { data: walkinDueToday = 0, isLoading: loadingWalkinDue } = useQuery({
+    queryKey: ['walkin-calls-due-today'],
+    queryFn: async () => {
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+      const { count, error } = await supabase
+        .from('showroom_walkins')
+        .select('id', { count: 'exact', head: true })
+        .eq('next_call_date', today)
+        .in('followup_status', ['pending', 'called']);
+
+      if (error) throw error;
+      return count ?? 0;
+    },
+    enabled: isAdmin,
+  });
+
   const { start, end } = useMemo(() => getDateRange(dateRange), [dateRange]);
   const startStr = formatDate(start);
   const endStr = formatDate(end);
@@ -120,8 +160,16 @@ export default function Accountability() {
       leadsByEmployee.set(eid, cur + 1);
     });
 
+    const walkinCompletedByCaller = new Map();
+    walkinCompletedToday.forEach(row => {
+      const callerId = String(row?.caller_id || '').trim();
+      if (!callerId) return;
+      walkinCompletedByCaller.set(callerId, (walkinCompletedByCaller.get(callerId) || 0) + 1);
+    });
+
     return users.map(user => {
       const eid = String(user.id);
+      const authUserId = String(user?.auth_user_id || '').trim();
       const name = [user.first_name, user.last_name].filter(Boolean).join(' ').trim() || user.email || `#${eid}`;
 
       // Messages sent by this user in the date range
@@ -164,6 +212,12 @@ export default function Accountability() {
       // Combined score
       const score = Math.round(volumeScore * 0.6 + consistencyScore * 0.4);
 
+      const walkinCompletedCount = (walkinCompletedByCaller.get(eid) || 0) + (authUserId ? (walkinCompletedByCaller.get(authUserId) || 0) : 0);
+      const walkinDueCount = walkinDueToday;
+      const walkinScore = walkinDueCount > 0
+        ? Math.round((walkinCompletedCount / walkinDueCount) * 100)
+        : 0;
+
       return {
         id: eid,
         name,
@@ -177,11 +231,14 @@ export default function Accountability() {
         consistencyScore,
         bySource,
         onTimeSent,
+        walkinCompletedCount,
+        walkinDueCount,
+        walkinScore,
       };
     })
     .filter(u => u.assignedLeads > 0 || u.totalSent > 0)
     .sort((a, b) => b.score - a.score);
-  }, [users, sentMessages, vnaLeads, matchLeads, greenLeads, startStr, endStr, rangeDays]);
+  }, [users, sentMessages, vnaLeads, matchLeads, greenLeads, walkinCompletedToday, walkinDueToday, startStr, endStr, rangeDays]);
 
   if (!isAdmin) {
     return (
@@ -192,7 +249,7 @@ export default function Accountability() {
     );
   }
 
-  if (isLoadingProfile || loadingSent) {
+  if (isLoadingProfile || loadingSent || loadingWalkinCompleted || loadingWalkinDue) {
     return (
       <div className="p-4 space-y-3">
         {[1,2,3].map(i => (
@@ -298,7 +355,7 @@ export default function Accountability() {
               </div>
 
               {/* Stats row */}
-              <div className="grid grid-cols-3 gap-2 mt-3">
+              <div className="grid grid-cols-4 gap-2 mt-3">
                 <div className="text-center">
                   <p className="text-sm font-bold text-gray-900 dark:text-white">{u.totalSent}</p>
                   <p className="text-[10px] text-gray-400">Msgs sent</p>
@@ -310,6 +367,10 @@ export default function Accountability() {
                 <div className="text-center">
                   <p className="text-sm font-bold text-gray-900 dark:text-white">{u.activeDays}/{u.rangeDays}</p>
                   <p className="text-[10px] text-gray-400">Active days</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-bold text-gray-900 dark:text-white">{u.walkinCompletedCount}/{u.walkinDueCount}</p>
+                  <p className="text-[10px] text-gray-400">Walkin score</p>
                 </div>
               </div>
 

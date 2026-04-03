@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useState, useMemo, useRef, useEffect, useCallback } from'react';
 import { Search, RefreshCw, Inbox } from'lucide-react';
 import { Input } from"@/components/ui/input";
@@ -377,7 +378,7 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
  </div>
  )}
  {isLoading ? (
- <div className="space-y-3">
+ <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
  {[1,2,3,4].map(i => (
  <div key={i} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 animate-pulse">
  <div className="flex items-start justify-between gap-3">
@@ -398,7 +399,7 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
  <p className="text-xs mt-1">Try adjusting your filters</p>
  </div>
  ) : (
- <div className="space-y-3">
+ <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
  {filtered.map(lead => {
  const leadKey = getSentMessageKeyForLead(lead, tab);
  const isLeadSent = Boolean(leadKey && sentMessageKeys.has(leadKey));

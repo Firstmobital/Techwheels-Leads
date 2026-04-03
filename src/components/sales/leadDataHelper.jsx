@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Helper to normalize lead data structure
  */

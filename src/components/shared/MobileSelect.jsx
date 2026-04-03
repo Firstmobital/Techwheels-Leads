@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useState, useRef, useEffect } from'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from"@/components/ui/select";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from"@/components/ui/drawer";

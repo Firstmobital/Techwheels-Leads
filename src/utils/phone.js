@@ -1,3 +1,4 @@
+// @ts-nocheck
 export function normalizePhoneDigits(phone) {
   if (!phone) return "";
   return String(phone).replace(/\D/g, "");

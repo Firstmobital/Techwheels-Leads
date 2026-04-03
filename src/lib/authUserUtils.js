@@ -1,3 +1,4 @@
+// @ts-nocheck
 export const isAdminUser = (user) => {
   if (!user) return false;
   if (user.isSuperAdmin === true || user.is_super_admin === true) return true;

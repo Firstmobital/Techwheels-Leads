@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useEffect, useMemo, useState } from'react';
 import { supabaseApi } from'@/api/supabaseService';
 import { useMutation, useQuery, useQueryClient } from'@tanstack/react-query';

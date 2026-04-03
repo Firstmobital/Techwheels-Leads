@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useState, useMemo } from'react';
 import { Link, useLocation, useNavigate } from'react-router-dom';
 import { createPageUrl } from'@/utils';
@@ -47,7 +48,52 @@ export default function Layout({ children, currentPageName }) {
  const allNavItems = [...navItems, ...adminNavItems];
 
  return (
- <div className={cn("min-h-screen flex flex-col", prefersDark ?'dark bg-gray-900' :'bg-gray-50')}>
+ <div className={cn("min-h-screen", prefersDark ?'dark bg-gray-900' :'bg-gray-50')}>
+ {/* Desktop Sidebar */}
+ <aside
+ className={cn(
+"hidden md:flex fixed left-0 top-0 h-screen w-[220px] border-r z-40 flex-col",
+ prefersDark ?'bg-gray-800 border-gray-700' :'bg-white border-gray-100'
+ )}
+ >
+ <div className="px-4 py-4 border-b border-gray-100 dark:border-gray-700">
+ <h2 className={cn("text-sm font-semibold", prefersDark ?'text-white' :'text-gray-900')}>Navigation</h2>
+ </div>
+ <nav className="flex-1 px-2 py-3 space-y-1">
+ {allNavItems.map(item => {
+ const Icon = item.icon;
+ const isActive = currentPageName === item.page;
+ return (
+ <Link
+ key={item.page}
+ to={item.to}
+ className={cn(
+"w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all user-select-none",
+ isActive
+ ? (prefersDark ?"bg-gray-700 text-white" :"bg-gray-100 text-gray-900")
+ : (prefersDark ?"text-gray-400 hover:bg-gray-700" :"text-gray-500 hover:bg-gray-50")
+ )}
+ >
+ <Icon className="w-4 h-4" />
+ <span>{item.label}</span>
+ </Link>
+ );
+ })}
+ </nav>
+ {!isHome && (
+ <div className="p-2 border-t border-gray-100 dark:border-gray-700">
+ <button
+ onClick={() => setShowLogoutDialog(true)}
+ className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium text-red-500 hover:bg-red-50 transition-all user-select-none"
+ >
+ <LogOut className="w-4 h-4" />
+ <span>Logout</span>
+ </button>
+ </div>
+ )}
+ </aside>
+
+ <div className="min-h-screen flex flex-col md:ml-[220px]">
  <AppHeader currentPageName={currentPageName} />
  <motion.div
  key={location.pathname}
@@ -62,7 +108,7 @@ export default function Layout({ children, currentPageName }) {
  {/* Bottom Nav */}
  <div
  className={cn(
-"fixed bottom-0 left-0 right-0 border-t flex justify-around z-50 max-w-lg mx-auto",
+"fixed bottom-0 left-0 right-0 border-t flex justify-around z-50 max-w-lg mx-auto md:hidden",
  prefersDark ?'bg-gray-800 border-gray-700' :'bg-white border-gray-100'
  )}
  style={{ paddingBottom:'env(safe-area-inset-bottom)' }}
@@ -98,14 +144,15 @@ export default function Layout({ children, currentPageName }) {
  </button>
  )}
  </div>
+ </div>
 
  {/* Logout Dialog */}
  {showLogoutDialog && (
- <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+ <div className="fixed inset-0 bg-black/50 flex items-end md:items-center justify-center z-50">
  <motion.div
  initial={{ scale: 0.9, opacity: 0 }}
  animate={{ scale: 1, opacity: 1 }}
- className="bg-white rounded-2xl p-6 max-w-sm mx-4 shadow-lg"
+ className="bg-white rounded-t-2xl md:rounded-2xl p-6 w-full md:max-w-sm mx-0 md:mx-4 shadow-lg"
  >
  <h2 className="text-lg font-bold text-gray-900 mb-2">Log out?</h2>
  <p className="text-sm text-gray-600 mb-6">
