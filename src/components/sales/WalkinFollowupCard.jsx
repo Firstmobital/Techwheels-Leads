@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState } from 'react';
-import { User, Phone, Car, Calendar, MessageCircle, PhoneCall, ChevronDown, ChevronUp } from 'lucide-react';
+import { User, Phone, Car, Calendar, MessageCircle, PhoneCall, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { format, parseISO, isBefore, startOfDay } from 'date-fns';
@@ -53,7 +53,7 @@ function isOverdue(dateString) {
 }
 
 export default function WalkinFollowupCard({ walkin, onLogCall }) {
-  const [showCallHistory, setShowCallHistory] = useState(false);
+  const [activeInfoTab, setActiveInfoTab] = useState('details');
 
   if (!walkin) {
     return null;
@@ -155,43 +155,6 @@ export default function WalkinFollowupCard({ walkin, onLogCall }) {
           </div>
         </div>
 
-        {/* Info row: date, token, calls */}
-        <div className="mt-3 space-y-1">
-          {walkinDate && (
-            <div className="flex items-center gap-1.5 text-xs">
-              <Calendar className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-              <span className="text-gray-600">Walkin: <span className="font-medium">{walkinDate}</span></span>
-            </div>
-          )}
-
-          {walkin.token_number && (
-            <div className="flex items-center gap-1.5 text-xs">
-              <span className="text-gray-400">Token:</span>
-              <span className="text-gray-700 font-medium">{walkin.token_number}</span>
-            </div>
-          )}
-
-          {walkin.call_count !== undefined && (
-            <div className="flex items-center gap-1.5 text-xs">
-              <span className="text-gray-400">Calls:</span>
-              <span className="text-gray-700 font-medium">{walkin.call_count} call{walkin.call_count !== 1 ? 's' : ''} logged</span>
-            </div>
-          )}
-
-          {nextCallDateFormatted && (
-            <div className="flex items-center gap-1.5 text-xs">
-              <Calendar className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-              <span className={cn(
-                'font-medium',
-                isDateOverdue ? 'text-red-600' : 'text-gray-600'
-              )}>
-                Next call: {nextCallDateFormatted}
-                {isDateOverdue && ' (Overdue)'}
-              </span>
-            </div>
-          )}
-        </div>
-
         {/* Action buttons */}
         <div className="mt-3 flex items-center gap-2">
           <UIButton
@@ -224,42 +187,92 @@ export default function WalkinFollowupCard({ walkin, onLogCall }) {
           </UIButton>
         </div>
 
-        {/* Collapsible call history */}
-        {callHistory.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-gray-100">
+        <div className="mt-3 pt-3 border-t border-gray-100">
+          <div className="rounded-xl border border-gray-200 bg-gray-50 p-1 grid grid-cols-2 gap-1">
             <button
-              onClick={() => setShowCallHistory(!showCallHistory)}
-              className="flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-gray-700 transition-colors"
+              type="button"
+              onClick={() => setActiveInfoTab('details')}
+              className={cn(
+                'rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-colors',
+                activeInfoTab === 'details' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              )}
             >
-              <MessageCircle className="w-3.5 h-3.5" />
-              Call history ({callHistory.length})
-              {showCallHistory ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              More Details
             </button>
-
-            {showCallHistory && (
-              <div className="mt-2 space-y-1.5">
-                {callHistory.map((call, idx) => {
-                  const callDate = call.created_at ? formatDate(call.created_at) : 'Unknown date';
-                  const callVerdict = call.verdict ? VERDICT_LABELS[call.verdict] || call.verdict : 'No verdict';
-                  return (
-                    <div key={idx} className="flex items-start gap-2 text-[10px] bg-gray-50 p-2 rounded-lg">
-                      <span className="text-gray-500 flex-shrink-0">{callDate}</span>
-                      <span className={cn(
-                        'font-semibold px-1.5 py-0.5 rounded border flex-shrink-0',
-                        VERDICT_COLORS[call.verdict] || 'bg-gray-100 text-gray-700 border-gray-200'
-                      )}>
-                        {callVerdict}
-                      </span>
-                      {call.notes && (
-                        <span className="text-gray-600 flex-1">{call.notes}</span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            <button
+              type="button"
+              onClick={() => setActiveInfoTab('history')}
+              className={cn(
+                'rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-colors flex items-center justify-center gap-1',
+                activeInfoTab === 'history' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              )}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              Contact History ({callHistory.length})
+            </button>
           </div>
-        )}
+
+          {activeInfoTab === 'details' ? (
+            <div className="mt-3 space-y-1">
+              {walkinDate && (
+                <div className="flex items-center gap-1.5 text-xs">
+                  <Calendar className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                  <span className="text-gray-600">Walkin: <span className="font-medium">{walkinDate}</span></span>
+                </div>
+              )}
+
+              {walkin.token_number && (
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className="text-gray-400">Token:</span>
+                  <span className="text-gray-700 font-medium">{walkin.token_number}</span>
+                </div>
+              )}
+
+              {walkin.call_count !== undefined && (
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className="text-gray-400">Calls:</span>
+                  <span className="text-gray-700 font-medium">{walkin.call_count} call{walkin.call_count !== 1 ? 's' : ''} logged</span>
+                </div>
+              )}
+
+              {nextCallDateFormatted && (
+                <div className="flex items-center gap-1.5 text-xs">
+                  <Calendar className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                  <span className={cn(
+                    'font-medium',
+                    isDateOverdue ? 'text-red-600' : 'text-gray-600'
+                  )}>
+                    Next call: {nextCallDateFormatted}
+                    {isDateOverdue && ' (Overdue)'}
+                  </span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="mt-3 space-y-1.5">
+              {callHistory.length === 0 ? (
+                <p className="text-xs text-gray-400">No contact history yet</p>
+              ) : callHistory.map((call, idx) => {
+                const callDate = call.created_at ? formatDate(call.created_at) : 'Unknown date';
+                const callVerdict = call.verdict ? VERDICT_LABELS[call.verdict] || call.verdict : 'No verdict';
+                return (
+                  <div key={idx} className="flex items-start gap-2 text-[10px] bg-gray-50 p-2 rounded-lg">
+                    <span className="text-gray-500 flex-shrink-0">{callDate}</span>
+                    <span className={cn(
+                      'font-semibold px-1.5 py-0.5 rounded border flex-shrink-0',
+                      VERDICT_COLORS[call.verdict] || 'bg-gray-100 text-gray-700 border-gray-200'
+                    )}>
+                      {callVerdict}
+                    </span>
+                    {call.notes && (
+                      <span className="text-gray-600 flex-1">{call.notes}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -1,8 +1,7 @@
 import React from'react';
 import { useLocation, useNavigate } from'react-router-dom';
-import { ChevronLeft, Sparkles, Menu } from'lucide-react';
+import { ChevronLeft, Menu } from'lucide-react';
 import { createPageUrl } from'@/utils';
-import { cn } from'@/lib/utils';
 
 /**
  * @typedef {Object} HeaderChildren

@@ -2,10 +2,9 @@
 import React, { useState } from'react';
 import { Link, useLocation, useNavigate } from'react-router-dom';
 import { createPageUrl } from'@/utils';
-import { MessageCircle, Users, LogOut, Menu } from'lucide-react';
+import { MessageCircle, Users, LogOut } from'lucide-react';
 import { cn } from'@/lib/utils';
 import { motion } from'framer-motion';
-import AppHeader from'@/components/shared/AppHeader';
 import { useAuth } from'@/lib/AuthContext';
 import { useCurrentUser } from'@/lib/CurrentUserContext';
 import { isAdminUser } from'@/lib/authUserUtils';
@@ -109,10 +108,6 @@ export default function Layout({ children, currentPageName }) {
  )}
 
  <div className="min-h-screen flex flex-col md:ml-[220px]">
- <AppHeader
- currentPageName={currentPageName}
- onMenuClick={() => setSidebarOpen(true)}
- />
  <motion.div
  key={location.pathname}
  initial={{ opacity: 0, x: 20 }}

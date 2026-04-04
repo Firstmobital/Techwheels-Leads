@@ -213,14 +213,13 @@ function ResponseLogPanel({ lead, tab, onClose }) {
 export default function LeadCard({ lead, tab, accentColor, message, isSent, onMarkSent, templates, sentMessages = [] }) {
  const normalizedLead = getNormalizedLead(lead);
  const [showResponseLog, setShowResponseLog] = useState(false);
- const [showDetails, setShowDetails] = useState(false);
+ const [activeInfoTab, setActiveInfoTab] = useState('details');
  const [showLogCall, setShowLogCall] = useState(false);
  const { currentUser } = useCurrentUser();
  const queryClient = useQueryClient();
 
  const leadSource = tab === 'vana' ? 'vna' : tab;
  const sourceRecordId = getSourceRecordIdForLead(lead, tab);
- const [showHistory, setShowHistory] = useState(false);
 
  const { data: callHistory = [] } = useQuery({
  queryKey: ['followup-calls', leadSource, sourceRecordId],
@@ -608,131 +607,131 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  </div>
 
 
-        {/* ── Extra fields — full width below header ── */}
-        {(tab === 'vna' || tab === 'vana') && (
-          <div className="mt-2 w-full">
-            <div className="flex flex-wrap gap-1.5">
-              {(typeof normalizedLead.product_line === 'string' ? normalizedLead.product_line.trim() : normalizedLead.product_line) && (
-                <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full truncate max-w-[140px]">
-                  {typeof normalizedLead.product_line === 'string' ? normalizedLead.product_line.trim() : normalizedLead.product_line}
-                </span>
-              )}
-              {(typeof normalizedLead.sales_team === 'string' ? normalizedLead.sales_team.trim() : normalizedLead.sales_team) && (
-                <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full truncate max-w-[140px]">
-                  {typeof normalizedLead.sales_team === 'string' ? normalizedLead.sales_team.trim() : normalizedLead.sales_team}
-                </span>
-              )}
-              {normalizedLead.chassis_no && (
-                <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-mono">{normalizedLead.chassis_no}</span>
-              )}
-            </div>
-            <button
-              onClick={() => setShowDetails(!showDetails)}
-              className="mt-2 flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
-            >
-              <ChevronDown className={cn("w-3 h-3 transition-transform", showDetails && "rotate-180")} />
-              {showDetails ? 'Less' : 'More details'}
-            </button>
-            {showDetails && (
-              <div className="mt-2 space-y-1">
-                {[
-                  ['Booking ID', normalizedLead.booking_id],
-                  ['PPL', normalizedLead.ppl],
-                  ['PL', normalizedLead.pl],
-                  ['Colour', normalizedLead.colour],
-                  ['CA Name', normalizedLead.ca_name],
-                  ['Opty ID', normalizedLead.opty_id],
-                  ['VC #', normalizedLead.vc_number],
-                  ['YF Open Date', normalizedLead.yf_open_date],
-                  ['Branch', normalizedLead.branch],
-                  ['TL Name', normalizedLead.tl_name],
-                  ['Allocation Status', normalizedLead.allocation_status],
-                ].filter(([, val]) => val).map(([label, val]) => (
-                  <div key={label} className="flex items-center gap-1.5 text-xs">
-                    <span className="text-gray-400 w-28 flex-shrink-0">{label}:</span>
-                    <span className="text-gray-700 font-medium">{val}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+ <div className="mt-3 border-t border-gray-100 pt-3">
+ <div className="rounded-xl border border-gray-200 bg-gray-50 p-1 grid grid-cols-2 gap-1">
+ <button
+ type="button"
+ onClick={() => setActiveInfoTab('details')}
+ className={cn(
+ 'rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-colors',
+ activeInfoTab === 'details' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+ )}
+ >
+ More Details
+ </button>
+ <button
+ type="button"
+ onClick={() => setActiveInfoTab('history')}
+ className={cn(
+ 'rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-colors flex items-center justify-center gap-1',
+ activeInfoTab === 'history' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+ )}
+ >
+ <Clock className="w-3.5 h-3.5" />
+ Contact History ({contactTimeline.length})
+ </button>
+ </div>
 
-        {tab === 'matchtalk' && (
-          <div className="mt-2 w-full">
-            <div className="flex flex-wrap gap-1.5">
-              {normalizedLead.ppl && (
-                <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full truncate max-w-[140px]">{normalizedLead.ppl}</span>
-              )}
-              {normalizedLead.ca_name && (
-                <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full truncate max-w-[140px]">{normalizedLead.ca_name}</span>
-              )}
-              {normalizedLead.chassis_no && (
-                <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-mono">{normalizedLead.chassis_no}</span>
-              )}
-            </div>
-            <button
-              onClick={() => setShowDetails(!showDetails)}
-              className="mt-2 flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
-            >
-              <ChevronDown className={cn("w-3 h-3 transition-transform", showDetails && "rotate-180")} />
-              {showDetails ? 'Less' : 'More details'}
-            </button>
-            {showDetails && (
-              <div className="mt-2 space-y-1">
-                {[
-                  ['Model', typeof normalizedLead.product_line === 'string' ? normalizedLead.product_line.trim() : normalizedLead.product_line],
-                  ['Sales Person', typeof normalizedLead.sales_team === 'string' ? normalizedLead.sales_team.trim() : normalizedLead.sales_team],
-                  ['PL', normalizedLead.pl],
-                  ['Colour', normalizedLead.colour],
-                  ['No Status', normalizedLead.no_status],
-                  ['VC #', normalizedLead.vc_number],
-                  ['Finance Remark', normalizedLead.finance_remark],
-                  ['Opty ID', normalizedLead.opty_id],
-                ].filter(([, val]) => val).map(([label, val]) => (
-                  <div key={label} className="flex items-center gap-1.5 text-xs">
-                    <span className="text-gray-400 w-28 flex-shrink-0">{label}:</span>
-                    <span className="text-gray-700 font-medium">{val}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+ {activeInfoTab === 'details' ? (
+ <div className="mt-3 space-y-2">
+ {(tab === 'vna' || tab === 'vana') && (
+ <>
+ <div className="flex flex-wrap gap-1.5">
+ {(typeof normalizedLead.product_line === 'string' ? normalizedLead.product_line.trim() : normalizedLead.product_line) && (
+ <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full truncate max-w-[140px]">
+ {typeof normalizedLead.product_line === 'string' ? normalizedLead.product_line.trim() : normalizedLead.product_line}
+ </span>
+ )}
+ {(typeof normalizedLead.sales_team === 'string' ? normalizedLead.sales_team.trim() : normalizedLead.sales_team) && (
+ <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full truncate max-w-[140px]">
+ {typeof normalizedLead.sales_team === 'string' ? normalizedLead.sales_team.trim() : normalizedLead.sales_team}
+ </span>
+ )}
+ {normalizedLead.chassis_no && (
+ <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-mono">{normalizedLead.chassis_no}</span>
+ )}
+ </div>
+ <div className="space-y-1">
+ {[
+ ['Booking ID', normalizedLead.booking_id],
+ ['PPL', normalizedLead.ppl],
+ ['PL', normalizedLead.pl],
+ ['Colour', normalizedLead.colour],
+ ['CA Name', normalizedLead.ca_name],
+ ['Opty ID', normalizedLead.opty_id],
+ ['VC #', normalizedLead.vc_number],
+ ['YF Open Date', normalizedLead.yf_open_date],
+ ['Branch', normalizedLead.branch],
+ ['TL Name', normalizedLead.tl_name],
+ ['Allocation Status', normalizedLead.allocation_status],
+ ].filter(([, val]) => val).map(([label, val]) => (
+ <div key={label} className="flex items-center gap-1.5 text-xs">
+ <span className="text-gray-400 w-28 flex-shrink-0">{label}:</span>
+ <span className="text-gray-700 font-medium">{val}</span>
+ </div>
+ ))}
+ </div>
+ </>
+ )}
 
-        {tab === 'greenforms' && (resolvedCarModel || resolvedGreenFormSource || resolvedGreenFormOwnerName) && (
-          <div className="mt-2 w-full">
-            <div className="flex flex-wrap gap-1.5">
-              {resolvedCarModel && (
-                <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full truncate max-w-[140px]">{resolvedCarModel}</span>
-              )}
-              {resolvedGreenFormSource && (
-                <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full truncate max-w-[140px]">{resolvedGreenFormSource}</span>
-              )}
-            </div>
-            {resolvedGreenFormOwnerName && (
-              <>
-                <button
-                  onClick={() => setShowDetails(!showDetails)}
-                  className="mt-2 flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                  <ChevronDown className={cn("w-3 h-3 transition-transform", showDetails && "rotate-180")} />
-                  {showDetails ? 'Less' : 'More details'}
-                </button>
-                {showDetails && (
-                  <div className="mt-2 space-y-1">
-                    <div className="flex items-center gap-1.5 text-xs">
-                      <span className="text-gray-400 w-20 flex-shrink-0">Employee:</span>
-                      <span className="text-gray-700 font-medium">{resolvedGreenFormOwnerName}</span>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
+ {tab === 'matchtalk' && (
+ <>
+ <div className="flex flex-wrap gap-1.5">
+ {normalizedLead.ppl && (
+ <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full truncate max-w-[140px]">{normalizedLead.ppl}</span>
+ )}
+ {normalizedLead.ca_name && (
+ <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full truncate max-w-[140px]">{normalizedLead.ca_name}</span>
+ )}
+ {normalizedLead.chassis_no && (
+ <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-mono">{normalizedLead.chassis_no}</span>
+ )}
+ </div>
+ <div className="space-y-1">
+ {[
+ ['Model', typeof normalizedLead.product_line === 'string' ? normalizedLead.product_line.trim() : normalizedLead.product_line],
+ ['Sales Person', typeof normalizedLead.sales_team === 'string' ? normalizedLead.sales_team.trim() : normalizedLead.sales_team],
+ ['PL', normalizedLead.pl],
+ ['Colour', normalizedLead.colour],
+ ['No Status', normalizedLead.no_status],
+ ['VC #', normalizedLead.vc_number],
+ ['Finance Remark', normalizedLead.finance_remark],
+ ['Opty ID', normalizedLead.opty_id],
+ ].filter(([, val]) => val).map(([label, val]) => (
+ <div key={label} className="flex items-center gap-1.5 text-xs">
+ <span className="text-gray-400 w-28 flex-shrink-0">{label}:</span>
+ <span className="text-gray-700 font-medium">{val}</span>
+ </div>
+ ))}
+ </div>
+ </>
+ )}
 
- {/* Response Log Button */}
+ {tab === 'greenforms' && (
+ <>
+ {(resolvedCarModel || resolvedGreenFormSource) && (
+ <div className="flex flex-wrap gap-1.5">
+ {resolvedCarModel && (
+ <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full truncate max-w-[140px]">{resolvedCarModel}</span>
+ )}
+ {resolvedGreenFormSource && (
+ <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full truncate max-w-[140px]">{resolvedGreenFormSource}</span>
+ )}
+ </div>
+ )}
+ {resolvedGreenFormOwnerName && (
+ <div className="flex items-center gap-1.5 text-xs">
+ <span className="text-gray-400 w-20 flex-shrink-0">Employee:</span>
+ <span className="text-gray-700 font-medium">{resolvedGreenFormOwnerName}</span>
+ </div>
+ )}
+ </>
+ )}
+
+ {!isTemplateDrivenTab && (
+ <p className="text-xs text-gray-400">No additional details available.</p>
+ )}
+
  {isTemplateDrivenTab && sentCount > 0 && (
  <div className="mt-2.5 pt-2.5 border-t border-gray-100">
  <button
@@ -753,21 +752,8 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  </div>
  )}
  </div>
-
- <div className="mt-3 border-t border-gray-100 pt-3">
- <button
- type="button"
- onClick={() => setShowHistory(h => !h)}
- className="flex items-center gap-1.5 text-xs text-gray-500 font-medium w-full"
- >
- <Clock className="w-3.5 h-3.5" />
- Contact History ({contactTimeline.length})
- {showHistory
- ? <ChevronUp className="w-3.5 h-3.5 ml-auto" />
- : <ChevronDown className="w-3.5 h-3.5 ml-auto" />}
- </button>
- {showHistory && (
- <div className="mt-2 space-y-2">
+ ) : (
+ <div className="mt-3 space-y-2">
  {contactTimeline.length === 0 ? (
  <p className="text-xs text-gray-400">No contact history yet</p>
  ) : contactTimeline.map((event, i) => (
@@ -805,6 +791,7 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  onSubmit={(payload) => logCallMutation.mutate(payload)}
  />
  )}
+ </div>
  </div>
  );
 }
