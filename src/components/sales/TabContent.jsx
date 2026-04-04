@@ -122,7 +122,7 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
  const [search, setSearch] = useState('');
  const [carFilter, setCarFilter] = useState('all');
  const [subTab, setSubTab] = useState('pending');
- const [showSent, setShowSent] = useState(false);
+ const [allLeadsMode, setAllLeadsMode] = useState('all');
  const [personFilter, setPersonFilter] = useState('all');
  const [allocationFilter, setAllocationFilter] = useState('all');
  const [pplFilter, setPplFilter] = useState('all');
@@ -202,19 +202,38 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
  ? resolvedGreenFormModel === carFilter
  : lead.car_model === carFilter);
 
- const leadSentKey = getSentMessageKeyForLead(lead, tab);
- const isLeadSent = leadSentKey ? sentMessageKeys.has(leadSentKey) : false;
- const matchSent = showSent || !isLeadSent;
-
  const matchPerson = personFilter ==='all' || (tab ==='greenforms' ? lead.salesperson_id === personFilter : lead.ca_name === personFilter);
  const matchAllocation = allocationFilter ==='all' || (tab ==='vana' && resolvedVnaAllocation ==='next in allocation');
  const matchPpl = pplFilter ==='all' || resolvedGreenFormModel === pplFilter;
  const matchSource = sourceFilter ==='all' || resolvedGreenFormSource === sourceFilter;
  const matchBranch = branchFilter ==='all' || lead.branch === branchFilter;
 
- return matchSearch && matchCar && matchSent && matchPerson && matchAllocation && matchPpl && matchSource && matchBranch;
+ return matchSearch && matchCar && matchPerson && matchAllocation && matchPpl && matchSource && matchBranch;
  });
- }, [leads, search, carFilter, showSent, sentMessageKeys, personFilter, allocationFilter, pplFilter, sourceFilter, branchFilter, tab]);
+ }, [leads, search, carFilter, personFilter, allocationFilter, pplFilter, sourceFilter, branchFilter, tab]);
+
+ const sentTodayLeadKeys = useMemo(() => {
+ const start = new Date();
+ start.setHours(0, 0, 0, 0);
+ const end = new Date(start);
+ end.setDate(end.getDate() + 1);
+
+ const keys = new Set();
+ sentMessages.forEach((row) => {
+ const key = (() => {
+ const src = String(row?.lead_source || '').trim().toLowerCase();
+ const rec = String(row?.source_record_id || '').trim();
+ return (src && rec) ? `${src}:${rec}` : null;
+ })();
+ if (!key) return;
+ const sentAt = new Date(row?.created_at || row?.sent_at || row?.updated_at || 0);
+ if (Number.isNaN(sentAt.getTime())) return;
+ if (sentAt >= start && sentAt < end) {
+ keys.add(key);
+ }
+ });
+ return keys;
+ }, [sentMessages]);
 
  // ── Summary counts ────────────────────────────────────────────────────────
  const summaryCounts = useMemo(() => {
@@ -270,8 +289,14 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
  const scoreB = (b.autoSeqOverdue || b.customOverdue ? 2 : 0) + (b.customDue ? 1 : 0);
  return scoreB - scoreA;
  });
- return { pendingLeads: pending, allLeads: filtered };
- }, [filtered, tab, sentMessages, templates, followupCalls]);
+ const all = allLeadsMode === 'sent_today'
+ ? filtered.filter((lead) => {
+ const leadKey = getSentMessageKeyForLead(lead, tab);
+ return Boolean(leadKey && sentTodayLeadKeys.has(leadKey));
+ })
+ : filtered;
+ return { pendingLeads: pending, allLeads: all };
+ }, [filtered, tab, sentMessages, templates, followupCalls, allLeadsMode, sentTodayLeadKeys]);
 
  // Save/restore scroll
  useEffect(() => {
@@ -367,14 +392,12 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
  Next In Allocation
  </UIButton>
  )}
- <UIButton
- variant={showSent ?"default" :"outline"}
- size="sm"
- onClick={() => setShowSent(!showSent)}
- className="h-8 rounded-lg text-xs px-3"
- >
- {showSent ?'Hide sent' :'Show sent'}
- </UIButton>
+ {subTab === 'all' && (
+ <MobileSelect value={allLeadsMode} onValueChange={setAllLeadsMode} placeholder="All Leads View" className="flex-1 min-w-[180px]">
+ <UISelectItem value="all">All Leads</UISelectItem>
+ <UISelectItem value="sent_today">Sent Today</UISelectItem>
+ </MobileSelect>
+ )}
  </div>
  <div className="flex items-center justify-between">
  <div className="text-[11px] text-gray-400 font-medium">

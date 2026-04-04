@@ -158,7 +158,8 @@ export default function HomeScreen() {
   const defaultFilters = {
     searchQuery: "",
     selectedModel: "all",
-    showSentLeads: false,
+    leadView: "pending",
+    allLeadsMode: "all",
     selectedPerson: "all",
     selectedSource: "all",
     selectedBranch: "all",
@@ -200,11 +201,11 @@ export default function HomeScreen() {
   const hasActiveFilters =
     activeFilters.searchQuery.trim().length > 0 ||
     activeFilters.selectedModel !== "all" ||
-    activeFilters.showSentLeads ||
     activeFilters.selectedPerson !== "all" ||
     activeFilters.selectedSource !== "all" ||
     activeFilters.selectedBranch !== "all" ||
-    activeFilters.allocationOnly;
+    activeFilters.allocationOnly ||
+    activeFilters.allLeadsMode !== "all";
 
   const sentMessageKeys = useMemo(() => {
     const keys = new Set();
@@ -255,18 +256,35 @@ export default function HomeScreen() {
     return Array.from(options).sort((a, b) => a.localeCompare(b));
   }, [leads, activeTab]);
 
-  const filteredLeads = useMemo(() => {
+  const sentTodayLeadKeys = useMemo(() => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+
+    const keys = new Set();
+    sentMessages.forEach((row) => {
+      const key = getSentMessageKeyForRow(row);
+      if (!key) return;
+      const sentAt = new Date(row?.created_at || row?.sent_at || row?.updated_at || 0);
+      if (Number.isNaN(sentAt.getTime())) return;
+      if (sentAt >= start && sentAt < end) {
+        keys.add(key);
+      }
+    });
+    return keys;
+  }, [sentMessages]);
+
+  const filteredBaseLeads = useMemo(() => {
     return leads.filter((lead) => {
       const query = activeFilters.searchQuery.trim().toLowerCase();
       const customer = String(lead?.customer_name || "").toLowerCase();
       const phone = String(lead?.mobile_number || lead?.phone_number || "");
       const modelValue = String(lead?.[modelField] || lead?.ppl || lead?.car_model || "");
-      const leadSentKey = getSentMessageKeyForLead(lead, activeTab);
 
       const matchesSearch =
         !query || customer.includes(query) || phone.includes(query) || modelValue.toLowerCase().includes(query);
       const matchesModel = activeFilters.selectedModel === "all" || modelValue === activeFilters.selectedModel;
-      const matchesSent = activeFilters.showSentLeads || !leadSentKey || !sentMessageKeys.has(leadSentKey);
       const personValue = String(lead?.[personField] || "").trim();
       const sourceValue = String(lead?.source_pv || "").trim();
       const branchValue = String(lead?.branch || "").trim();
@@ -279,7 +297,6 @@ export default function HomeScreen() {
       return (
         matchesSearch &&
         matchesModel &&
-        matchesSent &&
         matchesPerson &&
         matchesSource &&
         matchesBranch &&
@@ -300,7 +317,7 @@ export default function HomeScreen() {
     let dueToday = 0;
     let overdue = 0;
     let sent = 0;
-    filteredLeads.forEach((lead) => {
+    filteredBaseLeads.forEach((lead) => {
       const leadKey = getSentMessageKeyForLead(lead, activeTab);
       const history = sentMessages.filter((m) => {
         const msgKey = getSentMessageKeyForRow(m);
@@ -316,7 +333,7 @@ export default function HomeScreen() {
       if (nextStep.daysUntil === 0) { dueToday++; }
     });
     return { dueToday, overdue, sent };
-  }, [filteredLeads, sentMessages, templates, activeTab]);
+  }, [filteredBaseLeads, sentMessages, templates, activeTab]);
 
   const getMessageForStep = (tabId, lead, step) => {
     const customerName = lead?.customer_name || "Customer";
@@ -450,6 +467,31 @@ export default function HomeScreen() {
     const rows = defaults.length > 0 ? defaults : relevant;
     return [...rows].sort((a, b) => Math.max(1, toInt(a?.step_number, 1)) - Math.max(1, toInt(b?.step_number, 1)));
   };
+
+  const pendingLeads = useMemo(() => {
+    return filteredBaseLeads.filter((lead) => {
+      const leadKey = getSentMessageKeyForLead(lead, activeTab);
+      const history = sentMessages.filter((m) => {
+        const msgKey = getSentMessageKeyForRow(m);
+        return Boolean(leadKey && msgKey && msgKey === leadKey);
+      });
+      const templateOptions = getTemplateOptionsForLeadStep(lead);
+      const nextStep = getNextDueStep(history, activeTab, templateOptions);
+      return Boolean(nextStep && (nextStep.daysUntil === 0 || nextStep.overdue));
+    });
+  }, [filteredBaseLeads, sentMessages, activeTab, templates]);
+
+  const allLeads = useMemo(() => {
+    if (activeFilters.allLeadsMode === "sent_today") {
+      return filteredBaseLeads.filter((lead) => {
+        const leadKey = getSentMessageKeyForLead(lead, activeTab);
+        return Boolean(leadKey && sentTodayLeadKeys.has(leadKey));
+      });
+    }
+    return filteredBaseLeads;
+  }, [filteredBaseLeads, activeFilters.allLeadsMode, activeTab, sentTodayLeadKeys]);
+
+  const displayedLeads = activeFilters.leadView === "pending" ? pendingLeads : allLeads;
 
   const getPreviewMessage = (previewState) => {
     if (!previewState) return "";
@@ -816,17 +858,74 @@ export default function HomeScreen() {
             </Pressable>
           ) : null}
 
-          <Pressable
-            style={[styles.sentToggle, activeFilters.showSentLeads && styles.sentToggleActive]}
-            onPress={() => updateActiveFilters({ showSentLeads: !activeFilters.showSentLeads })}
-          >
-            <Text style={[styles.sentToggleText, activeFilters.showSentLeads && styles.sentToggleTextActive]}>
-              {activeFilters.showSentLeads ? "Showing Sent" : "Hide Sent"}
-            </Text>
-          </Pressable>
+          <View style={styles.leadViewRow}>
+            <Pressable
+              style={[
+                styles.leadViewButton,
+                activeFilters.leadView === "pending" && styles.leadViewButtonActive,
+              ]}
+              onPress={() => updateActiveFilters({ leadView: "pending" })}
+            >
+              <Text
+                style={[
+                  styles.leadViewText,
+                  activeFilters.leadView === "pending" && styles.leadViewTextActive,
+                ]}
+              >
+                Pending Today ({pendingLeads.length})
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[
+                styles.leadViewButton,
+                activeFilters.leadView === "all" && styles.leadViewButtonActive,
+              ]}
+              onPress={() => updateActiveFilters({ leadView: "all" })}
+            >
+              <Text
+                style={[
+                  styles.leadViewText,
+                  activeFilters.leadView === "all" && styles.leadViewTextActive,
+                ]}
+              >
+                All Leads ({allLeads.length})
+              </Text>
+            </Pressable>
+          </View>
+
+          {activeFilters.leadView === "all" ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+              <Pressable
+                style={[styles.filterPill, activeFilters.allLeadsMode === "all" && styles.filterPillActive]}
+                onPress={() => updateActiveFilters({ allLeadsMode: "all" })}
+              >
+                <Text
+                  style={[
+                    styles.filterPillText,
+                    activeFilters.allLeadsMode === "all" && styles.filterPillTextActive,
+                  ]}
+                >
+                  All Leads
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[styles.filterPill, activeFilters.allLeadsMode === "sent_today" && styles.filterPillActive]}
+                onPress={() => updateActiveFilters({ allLeadsMode: "sent_today" })}
+              >
+                <Text
+                  style={[
+                    styles.filterPillText,
+                    activeFilters.allLeadsMode === "sent_today" && styles.filterPillTextActive,
+                  ]}
+                >
+                  Sent Today
+                </Text>
+              </Pressable>
+            </ScrollView>
+          ) : null}
 
           <Text style={styles.countText}>
-            {filteredLeads.length} leads
+            {displayedLeads.length} leads
             {sentMessageKeys.size > 0 ? ` • ${sentMessageKeys.size} sent` : ""}
           </Text>
         </View>
@@ -860,7 +959,7 @@ export default function HomeScreen() {
           </View>
         ) : (
           <FlatList
-            data={filteredLeads}
+            data={displayedLeads}
             keyExtractor={(item) => String(item.id)}
             contentContainerStyle={styles.listContent}
             refreshControl={
@@ -870,7 +969,13 @@ export default function HomeScreen() {
                 tintColor="#1d4ed8"
               />
             }
-            ListEmptyComponent={<Text style={styles.emptyText}>No leads found for current filters.</Text>}
+            ListEmptyComponent={
+              <Text style={styles.emptyText}>
+                {activeFilters.leadView === "pending"
+                  ? "No pending leads for today."
+                  : "No leads found for current filters."}
+              </Text>
+            }
             renderItem={({ item }) => {
               const title = item?.[tabConfig.titleField] || "Unnamed lead";
               const subtitle = item?.[tabConfig.subtitleField] || "No details";
@@ -1204,6 +1309,28 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#64748b",
     fontWeight: "600",
+  },
+  leadViewRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  leadViewButton: {
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 8,
+    alignItems: "center",
+    backgroundColor: "#e2e8f0",
+  },
+  leadViewButtonActive: {
+    backgroundColor: "#0f172a",
+  },
+  leadViewText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#334155",
+  },
+  leadViewTextActive: {
+    color: "#ffffff",
   },
   statsRow: {
     flexDirection: "row",
