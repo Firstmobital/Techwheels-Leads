@@ -19,11 +19,11 @@ import {
 } from '@/utils/sentMessageUtils';
 
 const LEAD_TABS = [
-  { id: 'vana', label: 'VNA Next Allocation', icon: CarFront, color: 'bg-amber-500 hover:bg-amber-600', entity: 'VNAStock' },
-  { id: 'matchtalk', label: 'Match Stock', icon: Sparkles, color: 'bg-emerald-500 hover:bg-emerald-600', entity: 'MatchedStockCustomer' },
-  { id: 'greenforms', label: 'Green Forms', icon: FileText, color: 'bg-blue-500 hover:bg-blue-600', entity: 'GreenFormSubmittedLead' },
-  { id: 'ai_leads', label: 'AI Leads', icon: Bot, color: 'bg-purple-500 hover:bg-purple-600', entity: 'AILead' },
-  { id: 'walkin-backend', label: 'Walkin B/E', icon: Phone, color: 'bg-teal-500 hover:bg-teal-600', entity: null },
+  { id: 'vana', label: 'VNA Next Allocation', shortLabel: 'VNA', icon: CarFront, color: 'bg-amber-500 hover:bg-amber-600', entity: 'VNAStock' },
+  { id: 'matchtalk', label: 'Match Stock', shortLabel: 'Match', icon: Sparkles, color: 'bg-emerald-500 hover:bg-emerald-600', entity: 'MatchedStockCustomer' },
+  { id: 'greenforms', label: 'Green Forms', shortLabel: 'Green Forms', icon: FileText, color: 'bg-blue-500 hover:bg-blue-600', entity: 'GreenFormSubmittedLead' },
+  { id: 'ai_leads', label: 'AI Leads', shortLabel: 'AI Leads', icon: Bot, color: 'bg-purple-500 hover:bg-purple-600', entity: 'AILead' },
+  { id: 'walkin-backend', label: 'Walkin B/E', shortLabel: 'Walk-in', icon: Phone, color: 'bg-teal-500 hover:bg-teal-600', entity: null },
 ];
 const ADMIN_TABS = [
   { id: 'templates', label: 'Templates', icon: FileText, color: 'bg-gray-500 hover:bg-gray-600', entity: null },
@@ -339,11 +339,16 @@ export default function Home() {
   const isWalkinBackendTab = activeTab === 'walkin-backend';
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col max-w-lg mx-auto">
+    <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header */}
-      <div className="bg-white border-b border-gray-100 px-5 pt-6 pb-4 safe-area-top">
+      <div className="bg-white border-b border-gray-100 px-5 pt-6 pb-4 safe-area-top sticky top-0 z-20">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold text-gray-900">Dealership Leads</h1>
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-green-500 flex items-center justify-center flex-shrink-0 md:hidden">
+              <span className="text-[11px] font-bold text-white">TW</span>
+            </div>
+            <h1 className="text-xl font-bold text-gray-900">Dealership Leads</h1>
+          </div>
         </div>
       </div>
 
@@ -377,7 +382,7 @@ export default function Home() {
       </div>
 
       {/* Tabs */}
-      <div className="bg-white border-b border-gray-100 px-4 flex gap-1 py-2">
+      <div className="bg-white border-b border-gray-100 px-2 flex gap-1 py-2 overflow-x-auto sticky top-[73px] z-10">
         {TABS.map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -387,14 +392,14 @@ export default function Home() {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                "flex-1 flex flex-col items-center gap-1 py-2.5 px-2 rounded-xl transition-all text-xs font-medium",
+                "flex-shrink-0 flex items-center gap-2 py-2 px-4 rounded-xl transition-all text-sm font-medium whitespace-nowrap",
                 isActive
-                  ? "bg-gray-900 text-white shadow-lg shadow-gray-900/20"
+                  ? "bg-gray-900 text-white"
                   : "text-gray-500 hover:bg-gray-100"
               )}
             >
               <Icon className="w-4 h-4" />
-              <span>{tab.label}</span>
+              <span>{tab.shortLabel ?? tab.label}</span>
               {count !== null && count > 0 && (
                 <span className={cn(
                   "text-[10px] px-1.5 py-0.5 rounded-full font-semibold leading-none",
@@ -409,7 +414,7 @@ export default function Home() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-y-auto">
         {(isLoadingAuth || (isLoadingProfile && !currentUser)) ? (
           <div className="h-full overflow-y-auto p-4 pb-24">
             <div className="rounded-2xl border border-gray-200 bg-white p-4 text-sm text-gray-500">

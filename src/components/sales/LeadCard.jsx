@@ -211,6 +211,7 @@ function ResponseLogPanel({ lead, tab, onClose }) {
 export default function LeadCard({ lead, tab, accentColor, message, isSent, onMarkSent, templates, sentMessages = [] }) {
  const normalizedLead = getNormalizedLead(lead);
  const [showResponseLog, setShowResponseLog] = useState(false);
+ const [showDetails, setShowDetails] = useState(false);
 
  const isTemplateDrivenTab = tab ==='vana' || tab ==='matchtalk' || tab ==='greenforms';
  const isGreenForms = tab ==='greenforms';
@@ -367,9 +368,9 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
 
  // Urgency level for border color
  const urgencyBorder = nextDue?.overdue
- ?'border-l-2 border-l-red-500'
+ ?'border-l-[3px] border-l-red-500'
  : (!allDone && nextDue?.daysUntil === 0)
- ?'border-l-2 border-l-green-500'
+ ?'border-l-[3px] border-l-green-500'
  :'';
 
  // Overdue days label
@@ -404,7 +405,7 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  {/* Name + status badges */}
  <div className="flex items-center gap-2 mb-1 flex-wrap">
  <User className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
- <h3 className="font-semibold text-gray-900 text-sm truncate">{normalizedLead.customer_name}</h3>
+ <h3 className="font-semibold text-gray-900 text-sm truncate" title={normalizedLead.customer_name}>{normalizedLead.customer_name}</h3>
  {allDone && (
  <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full flex-shrink-0">
  <CheckCircle2 className="w-2.5 h-2.5" />
@@ -553,66 +554,125 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
 
         {/* ── Extra fields — full width below header ── */}
         {(tab === 'vna' || tab === 'vana') && (
-          <div className="mt-3 space-y-1 w-full">
-            {[
-              ['Model', typeof normalizedLead.product_line === 'string' ? (normalizedLead.product_line.trim() || '-') : (normalizedLead.product_line ?? '-')],
-              ['Sales Person', typeof normalizedLead.sales_team === 'string' ? (normalizedLead.sales_team.trim() || '-') : (normalizedLead.sales_team ?? '-')],
-              ['Booking ID', normalizedLead.booking_id],
-              ['Chassis No', normalizedLead.chassis_no],
-              ['PPL', normalizedLead.ppl],
-              ['PL', normalizedLead.pl],
-              ['Colour', normalizedLead.colour],
-              ['CA Name', normalizedLead.ca_name],
-              ['Opty ID', normalizedLead.opty_id],
-              ['VC #', normalizedLead.vc_number],
-              ['YF Open Date', normalizedLead.yf_open_date],
-              ['Branch', normalizedLead.branch],
-              ['TL Name', normalizedLead.tl_name],
-              ['Allocation Status', normalizedLead.allocation_status],
-            ].filter(([, val]) => val).map(([label, val]) => (
-              <div key={label} className="flex items-center gap-1.5 text-xs">
-                <span className="text-gray-400 w-28 flex-shrink-0">{label}:</span>
-                <span className="text-gray-700 font-medium">{val}</span>
+          <div className="mt-2 w-full">
+            <div className="flex flex-wrap gap-1.5">
+              {(typeof normalizedLead.product_line === 'string' ? normalizedLead.product_line.trim() : normalizedLead.product_line) && (
+                <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full truncate max-w-[140px]">
+                  {typeof normalizedLead.product_line === 'string' ? normalizedLead.product_line.trim() : normalizedLead.product_line}
+                </span>
+              )}
+              {(typeof normalizedLead.sales_team === 'string' ? normalizedLead.sales_team.trim() : normalizedLead.sales_team) && (
+                <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full truncate max-w-[140px]">
+                  {typeof normalizedLead.sales_team === 'string' ? normalizedLead.sales_team.trim() : normalizedLead.sales_team}
+                </span>
+              )}
+              {normalizedLead.chassis_no && (
+                <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-mono">{normalizedLead.chassis_no}</span>
+              )}
+            </div>
+            <button
+              onClick={() => setShowDetails(!showDetails)}
+              className="mt-2 flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <ChevronDown className={cn("w-3 h-3 transition-transform", showDetails && "rotate-180")} />
+              {showDetails ? 'Less' : 'More details'}
+            </button>
+            {showDetails && (
+              <div className="mt-2 space-y-1">
+                {[
+                  ['Booking ID', normalizedLead.booking_id],
+                  ['PPL', normalizedLead.ppl],
+                  ['PL', normalizedLead.pl],
+                  ['Colour', normalizedLead.colour],
+                  ['CA Name', normalizedLead.ca_name],
+                  ['Opty ID', normalizedLead.opty_id],
+                  ['VC #', normalizedLead.vc_number],
+                  ['YF Open Date', normalizedLead.yf_open_date],
+                  ['Branch', normalizedLead.branch],
+                  ['TL Name', normalizedLead.tl_name],
+                  ['Allocation Status', normalizedLead.allocation_status],
+                ].filter(([, val]) => val).map(([label, val]) => (
+                  <div key={label} className="flex items-center gap-1.5 text-xs">
+                    <span className="text-gray-400 w-28 flex-shrink-0">{label}:</span>
+                    <span className="text-gray-700 font-medium">{val}</span>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
         )}
 
         {tab === 'matchtalk' && (
-          <div className="mt-3 space-y-1 w-full">
-            {[
-              ['Model', typeof normalizedLead.product_line === 'string' ? (normalizedLead.product_line.trim() || '-') : (normalizedLead.product_line ?? '-')],
-              ['Sales Person', typeof normalizedLead.sales_team === 'string' ? (normalizedLead.sales_team.trim() || '-') : (normalizedLead.sales_team ?? '-')],
-              ['Chassis No', normalizedLead.chassis_no],
-              ['PPL', normalizedLead.ppl],
-              ['PL', normalizedLead.pl],
-              ['Colour', normalizedLead.colour],
-              ['CA Name', normalizedLead.ca_name],
-              ['No Status', normalizedLead.no_status],
-              ['VC #', normalizedLead.vc_number],
-              ['Finance Remark', normalizedLead.finance_remark],
-              ['Opty ID', normalizedLead.opty_id],
-            ].filter(([, val]) => val).map(([label, val]) => (
-              <div key={label} className="flex items-center gap-1.5 text-xs">
-                <span className="text-gray-400 w-28 flex-shrink-0">{label}:</span>
-                <span className="text-gray-700 font-medium">{val}</span>
+          <div className="mt-2 w-full">
+            <div className="flex flex-wrap gap-1.5">
+              {normalizedLead.ppl && (
+                <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full truncate max-w-[140px]">{normalizedLead.ppl}</span>
+              )}
+              {normalizedLead.ca_name && (
+                <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full truncate max-w-[140px]">{normalizedLead.ca_name}</span>
+              )}
+              {normalizedLead.chassis_no && (
+                <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-mono">{normalizedLead.chassis_no}</span>
+              )}
+            </div>
+            <button
+              onClick={() => setShowDetails(!showDetails)}
+              className="mt-2 flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <ChevronDown className={cn("w-3 h-3 transition-transform", showDetails && "rotate-180")} />
+              {showDetails ? 'Less' : 'More details'}
+            </button>
+            {showDetails && (
+              <div className="mt-2 space-y-1">
+                {[
+                  ['Model', typeof normalizedLead.product_line === 'string' ? normalizedLead.product_line.trim() : normalizedLead.product_line],
+                  ['Sales Person', typeof normalizedLead.sales_team === 'string' ? normalizedLead.sales_team.trim() : normalizedLead.sales_team],
+                  ['PL', normalizedLead.pl],
+                  ['Colour', normalizedLead.colour],
+                  ['No Status', normalizedLead.no_status],
+                  ['VC #', normalizedLead.vc_number],
+                  ['Finance Remark', normalizedLead.finance_remark],
+                  ['Opty ID', normalizedLead.opty_id],
+                ].filter(([, val]) => val).map(([label, val]) => (
+                  <div key={label} className="flex items-center gap-1.5 text-xs">
+                    <span className="text-gray-400 w-28 flex-shrink-0">{label}:</span>
+                    <span className="text-gray-700 font-medium">{val}</span>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
         )}
 
         {tab === 'greenforms' && (resolvedCarModel || resolvedGreenFormSource || resolvedGreenFormOwnerName) && (
-          <div className="mt-3 space-y-1 w-full">
-            {[
-              ['Model', resolvedCarModel],
-              ['Source', resolvedGreenFormSource],
-              ['Employee', resolvedGreenFormOwnerName],
-            ].filter(([, val]) => val).map(([label, val]) => (
-              <div key={label} className="flex items-center gap-1.5 text-xs">
-                <span className="text-gray-400 w-20 flex-shrink-0">{label}:</span>
-                <span className="text-gray-700 font-medium">{val}</span>
-              </div>
-            ))}
+          <div className="mt-2 w-full">
+            <div className="flex flex-wrap gap-1.5">
+              {resolvedCarModel && (
+                <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full truncate max-w-[140px]">{resolvedCarModel}</span>
+              )}
+              {resolvedGreenFormSource && (
+                <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full truncate max-w-[140px]">{resolvedGreenFormSource}</span>
+              )}
+            </div>
+            {resolvedGreenFormOwnerName && (
+              <>
+                <button
+                  onClick={() => setShowDetails(!showDetails)}
+                  className="mt-2 flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <ChevronDown className={cn("w-3 h-3 transition-transform", showDetails && "rotate-180")} />
+                  {showDetails ? 'Less' : 'More details'}
+                </button>
+                {showDetails && (
+                  <div className="mt-2 space-y-1">
+                    <div className="flex items-center gap-1.5 text-xs">
+                      <span className="text-gray-400 w-20 flex-shrink-0">Employee:</span>
+                      <span className="text-gray-700 font-medium">{resolvedGreenFormOwnerName}</span>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
 

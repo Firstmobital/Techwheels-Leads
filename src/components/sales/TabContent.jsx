@@ -361,7 +361,7 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
  {/* ── Lead list ── */}
  <div
  ref={scrollRef}
- className="flex-1 overflow-y-auto px-4 pb-24 pt-2"
+ className="flex-1 overflow-y-auto md:overflow-visible px-4 pb-24 md:pb-8 pt-2"
  onTouchStart={(e) => { startTouchRef.current = e.touches?.[0]?.clientY || null; }}
  onTouchMove={handlePullToRefresh}
  onTouchEnd={() => { startTouchRef.current = null; }}
@@ -372,7 +372,7 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
  </div>
  )}
  {isLoading ? (
- <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+ <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
  {[1,2,3,4].map(i => (
  <div key={i} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 animate-pulse">
  <div className="flex items-start justify-between gap-3">
@@ -393,7 +393,7 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
  <p className="text-xs mt-1">Try adjusting your filters</p>
  </div>
  ) : (
- <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+ <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
  {filtered.map(lead => {
  const leadKey = getSentMessageKeyForLead(lead, tab);
  const isLeadSent = Boolean(leadKey && sentMessageKeys.has(leadKey));
