@@ -226,13 +226,13 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  queryFn: async () => {
  const { data } = await supabase
  .from('walkin_followup_calls')
- .select('*, employees!caller_id(first_name, last_name)')
+ .select('*')
  .eq('lead_source', leadSource)
  .eq('source_record_id', sourceRecordId)
  .order('created_at', { ascending: false });
  return data || [];
  },
- enabled: !!sourceRecordId,
+ enabled: !!sourceRecordId && activeInfoTab === 'history',
  });
 
  const contactTimeline = useMemo(() => {
