@@ -1,11 +1,18 @@
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { AuthProvider, useAuth } from './src/auth/AuthProvider';
 import HomeScreen from './src/screens/HomeScreen';
 import LoginScreen from './src/screens/LoginScreen';
 import InviteUsersScreen from './src/screens/InviteUsersScreen';
 import TemplatesScreen from './src/screens/TemplatesScreen';
+
+// Respect user accessibility font-size settings across the app.
+Text.defaultProps = Text.defaultProps || {};
+Text.defaultProps.allowFontScaling = true;
+
+TextInput.defaultProps = TextInput.defaultProps || {};
+TextInput.defaultProps.allowFontScaling = true;
 
 export default function App() {
   return (
