@@ -9,3 +9,19 @@ export const isAdminUser = (user) => {
 
   return roleCode === 'admin' || roleName === 'admin' || role === 'admin';
 };
+
+export const isSalesPerson = (user) => {
+  if (!user) return false;
+  if (isAdminUser(user)) return false;
+  const roleCode = String(user.roleCode || '').trim().toLowerCase();
+  const roleName = String(user.roleName || '').trim().toLowerCase();
+  return roleCode === 'salesperson' || roleName === 'salesperson';
+};
+
+export const isCallingTeam = (user) => {
+  if (!user) return false;
+  if (isAdminUser(user)) return false;
+  const roleCode = String(user.roleCode || '').trim().toLowerCase();
+  const roleName = String(user.roleName || '').trim().toLowerCase();
+  return roleCode === 'calling_team' || roleName === 'calling_team';
+};

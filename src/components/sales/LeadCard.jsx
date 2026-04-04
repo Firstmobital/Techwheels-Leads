@@ -5,11 +5,13 @@ import { Button } from"@/components/ui/button";
 import { cn } from"@/lib/utils";
 import { differenceInDays } from'date-fns';
 import { getNormalizedLead } from'./leadDataHelper';
-import { matchesSentMessageToLead } from'@/utils/sentMessageUtils';
+import { matchesSentMessageToLead, getSourceRecordIdForLead } from'@/utils/sentMessageUtils';
 import { buildCallUrl, buildWhatsAppUrl } from'@/utils/phone';
+import LogCallModal from'./LogCallModal';
 import { supabaseApi } from'@/api/supabaseService';
-import { useMutation, useQueryClient } from'@tanstack/react-query';
+import { useMutation, useQueryClient, useQuery } from'@tanstack/react-query';
 import { useCurrentUser } from'@/lib/CurrentUserContext';
+import { supabaseClient } from'@/api/supabaseClient';
 
 const UIButton = /** @type {any} */ (Button);
 
@@ -212,6 +214,36 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  const normalizedLead = getNormalizedLead(lead);
  const [showResponseLog, setShowResponseLog] = useState(false);
  const [showDetails, setShowDetails] = useState(false);
+ const [showLogCall, setShowLogCall] = useState(false);
+ const { currentUser } = useCurrentUser();
+ const queryClient = useQueryClient();
+
+ const leadSource = tab === 'vana' ? 'vna' : tab;
+ const sourceRecordId = getSourceRecordIdForLead(lead, tab);
+ const [showHistory, setShowHistory] = useState(false);
+
+ const { data: callHistory = [] } = useQuery({
+ queryKey: ['followup-calls', leadSource, sourceRecordId],
+ queryFn: async () => {
+ const { data } = await supabaseClient
+ .from('walkin_followup_calls')
+ .select('*, employees!caller_id(first_name, last_name)')
+ .eq('lead_source', leadSource)
+ .eq('source_record_id', sourceRecordId)
+ .order('created_at', { ascending: false });
+ return data || [];
+ },
+ enabled: !!sourceRecordId,
+ });
+
+ const contactTimeline = useMemo(() => {
+ const whatsappEvents = (sentMessages || [])
+ .filter(m => matchesSentMessageToLead(m, lead, tab))
+ .map(m => ({ ...m, type: 'whatsapp' }));
+ const callEvents = callHistory.map(c => ({ ...c, type: 'call' }));
+ return [...whatsappEvents, ...callEvents]
+ .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+ }, [sentMessages, callHistory, lead, tab]);
 
  const isTemplateDrivenTab = tab ==='vana' || tab ==='matchtalk' || tab ==='greenforms';
  const isGreenForms = tab ==='greenforms';
@@ -277,6 +309,20 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  const resolvedPl = normalizedLead.pl || normalizedLead.product_line ||'';
  const resolvedColour = normalizedLead.colour || normalizedLead.product_description ||'';
  const resolvedChassisNo = normalizedLead.chassis_no ||'';
+
+ const logCallMutation = useMutation({
+ mutationFn: (payload) => supabaseApi.walkinFollowup.logCall({
+ ...payload,
+ walkin_id: null,
+ lead_source: tab === 'vana' ? 'vna' : tab,
+ source_record_id: getSourceRecordIdForLead(lead, tab),
+ caller_id: currentUser?.authUserId,
+ }),
+ onSuccess: () => {
+ queryClient.invalidateQueries({ queryKey: ['followup-calls'] });
+ setShowLogCall(false);
+ },
+ });
 
  const fillPlaceholders = (msg) => msg
  .replace(/{customer_name}/g, normalizedLead.customer_name ||'')
@@ -524,12 +570,13 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  })}
  </div>
  ) : (
+ <div className="flex items-center gap-2">
  <div className="flex flex-col items-center gap-1">
  <UIButton
  onClick={() => handleSend(resolvedDefault, dbStepTemplate)}
  variant="outline"
  className={cn(
-"rounded-xl h-12 w-12 p-0 shadow-sm border",
+ "rounded-xl h-12 w-12 p-0 shadow-sm border",
  nextDue?.overdue
  ?"bg-red-500 hover:bg-red-600 text-white border-red-500"
  :"bg-green-50 hover:bg-green-100 border-green-200 text-green-700"
@@ -539,6 +586,15 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  <MessageCircle className="w-5 h-5" />
  </UIButton>
  <span className="text-[9px] font-bold text-gray-400">{dueLabel} {currentStep}</span>
+ </div>
+ <button
+ type="button"
+ onClick={() => setShowLogCall(true)}
+ className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 text-xs font-medium text-gray-600 hover:bg-gray-50"
+ >
+ <PhoneCall className="w-3.5 h-3.5" />
+ Log Call
+ </button>
  </div>
  )}
  </div>
@@ -697,6 +753,59 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  </div>
  )}
  </div>
+ </div>
+
+ <div className="mt-3 border-t border-gray-100 pt-3">
+ <button
+ type="button"
+ onClick={() => setShowHistory(h => !h)}
+ className="flex items-center gap-1.5 text-xs text-gray-500 font-medium w-full"
+ >
+ <Clock className="w-3.5 h-3.5" />
+ Contact History ({contactTimeline.length})
+ {showHistory
+ ? <ChevronUp className="w-3.5 h-3.5 ml-auto" />
+ : <ChevronDown className="w-3.5 h-3.5 ml-auto" />}
+ </button>
+ {showHistory && (
+ <div className="mt-2 space-y-2">
+ {contactTimeline.length === 0 ? (
+ <p className="text-xs text-gray-400">No contact history yet</p>
+ ) : contactTimeline.map((event, i) => (
+ <div key={i} className="flex gap-2 text-xs">
+ <span className="mt-0.5 text-base">{event.type === 'whatsapp' ? '💬' : '📞'}</span>
+ <div>
+ <p className="text-gray-700 font-medium">
+ {event.type === 'whatsapp'
+ ? 'WhatsApp sent'
+ : `Call — ${event.verdict || 'logged'}`}
+ </p>
+ <p className="text-gray-400">
+ {new Date(event.created_at).toLocaleDateString('en-IN', {
+ day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+ })}
+ {event.type === 'call' && event.employees &&
+ ` · ${event.employees.first_name} ${event.employees.last_name}`}
+ </p>
+ {event.notes && <p className="text-gray-500 mt-0.5">{event.notes}</p>}
+ {event.next_call_date && (
+ <p className="text-blue-600 mt-0.5">Next followup: {event.next_call_date}</p>
+ )}
+ </div>
+ </div>
+ ))}
+ </div>
+ )}
+ </div>
+
+ {showLogCall && (
+ <LogCallModal
+ open={showLogCall}
+ walkin={lead}
+ onClose={() => setShowLogCall(false)}
+ onSubmit={(payload) => logCallMutation.mutate(payload)}
+ />
+ )}
  </div>
  );
 }

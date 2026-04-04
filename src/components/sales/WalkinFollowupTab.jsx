@@ -18,6 +18,7 @@ export default function WalkinFollowupTab() {
   const { currentUser } = useCurrentUser();
   const [activeSegment, setActiveSegment] = useState('All');
   const [selectedWalkin, setSelectedWalkin] = useState(null);
+  const [subTab, setSubTab] = useState('pending');
 
   const isAdmin = currentUser?.isSuperAdmin || currentUser?.role === 'admin';
 
@@ -64,6 +65,16 @@ export default function WalkinFollowupTab() {
     const escalated = filtered.filter((w) => w.followup_status === 'escalated').length;
     const booked = filtered.filter((w) => w.followup_status === 'booked').length;
     return { total, pending, escalated, booked };
+  }, [filtered]);
+
+  const pendingWalkins = useMemo(() => {
+    const today = new Date(); today.setHours(0,0,0,0);
+    return filtered.filter(w => {
+      if (w.followup_status === 'booked' || w.followup_status === 'not_interested') return false;
+      if (!w.next_call_date) return w.followup_status === 'pending';
+      const due = new Date(w.next_call_date); due.setHours(0,0,0,0);
+      return due.getTime() <= today.getTime();
+    });
   }, [filtered]);
 
   const handleLogCall = async (payload) => {
@@ -143,6 +154,28 @@ export default function WalkinFollowupTab() {
         <div className="text-[11px] text-gray-400 font-medium">
           {filtered.length} walkin{filtered.length !== 1 ? 's' : ''}
         </div>
+        <div className="flex gap-1">
+          <button
+            type="button"
+            onClick={() => setSubTab('pending')}
+            className={cn(
+              'flex-1 rounded-xl px-3 py-2 text-xs font-semibold transition-all',
+              subTab === 'pending' ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-100'
+            )}
+          >
+            Pending Today ({pendingWalkins.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setSubTab('all')}
+            className={cn(
+              'flex-1 rounded-xl px-3 py-2 text-xs font-semibold transition-all',
+              subTab === 'all' ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-100'
+            )}
+          >
+            All Walk-ins ({filtered.length})
+          </button>
+        </div>
       </div>
 
       {/* ── Card list ── */}
@@ -173,7 +206,7 @@ export default function WalkinFollowupTab() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {filtered.map((walkin) => (
+            {(subTab === 'pending' ? pendingWalkins : filtered).map((walkin) => (
               <WalkinFollowupCard
                 key={walkin.id}
                 walkin={walkin}

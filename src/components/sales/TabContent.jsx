@@ -78,6 +78,42 @@ function isDueToday(lead, tab, sentMessages, templates) {
  const seqTemplates = Array.isArray(templates) ? templates
  .filter(t => t?.step_number != null)
  .map((t, i) => ({ ...t, step_number: Math.max(1, toInt(t.step_number, i + 1)), delay_days: Math.max(0, toInt(t.delay_days, 0)) }))
+}
+
+function hasCustomFollowupDue(lead, tab, followupCalls) {
+ const leadKey = getSentMessageKeyForLead(lead, tab);
+ if (!leadKey) return { due: false, overdue: false };
+ const calls = followupCalls.filter(c => {
+ const src = String(c.lead_source || '').trim().toLowerCase();
+ const rec = String(c.source_record_id || '').trim();
+ return `${src}:${rec}` === leadKey;
+ });
+ if (!calls.length) return { due: false, overdue: false };
+ const latest = calls.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+ if (!latest.next_call_date) return { due: false, overdue: false };
+ const today = new Date(); today.setHours(0,0,0,0);
+ const due = new Date(latest.next_call_date); due.setHours(0,0,0,0);
+ if (due.getTime() === today.getTime()) return { due: true, overdue: false };
+ if (due.getTime() < today.getTime()) return { due: false, overdue: true };
+ return { due: false, overdue: false };
+}
+
+function isDueToday(lead, tab, sentMessages, templates) {
+ const key = getSentMessageKeyForLead(lead, tab);
+ const history = sentMessages.filter(row => {
+ const rowKey = (() => {
+ const src = String(row?.lead_source ||'').trim().toLowerCase();
+ const rec = String(row?.source_record_id ||'').trim();
+ return (src && rec) ?`${src}:${rec}` : null;
+ })();
+ return key && rowKey && key === rowKey;
+ });
+ // 0 sent → first message is always due
+ if (!history.length) return true;
+
+ const seqTemplates = Array.isArray(templates) ? templates
+ .filter(t => t?.step_number != null)
+ .map((t, i) => ({ ...t, step_number: Math.max(1, toInt(t.step_number, i + 1)), delay_days: Math.max(0, toInt(t.delay_days, 0)) }))
  .sort((a, b) => a.step_number - b.step_number) : [];
  const hasConfigured = seqTemplates.some(t => t.step_number > 1 || t.delay_days > 0);
  const seq = hasConfigured ? seqTemplates : [];
@@ -100,9 +136,10 @@ function isDueToday(lead, tab, sentMessages, templates) {
 }
 
 // ─── Main TabContent ───────────────────────────────────────────────────────────
-export default function TabContent({ leads, isLoading, tab, accentColor, getMessage, sentMessageKeys = new Set(), sentMessages = [], onMarkSent, onRefresh, templates, isAdmin, users = [] }) {
+export default function TabContent({ leads, isLoading, tab, accentColor, getMessage, sentMessageKeys = new Set(), sentMessages = [], onMarkSent, onRefresh, templates, isAdmin, users = [], followupCalls = [] }) {
  const [search, setSearch] = useState('');
  const [carFilter, setCarFilter] = useState('all');
+ const [subTab, setSubTab] = useState('pending');
  const [showSent, setShowSent] = useState(false);
  const [personFilter, setPersonFilter] = useState('all');
  const [allocationFilter, setAllocationFilter] = useState('all');
@@ -232,6 +269,28 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
  return { total, overdue, dueToday, done, pending };
  }, [filtered, tab, sentMessages, templates]);
 
+ const { pendingLeads, allLeads } = useMemo(() => {
+ const pending = [];
+ filtered.forEach(lead => {
+ const autoSeqDue = isDueToday(lead, tab, sentMessages, templates);
+ const autoSeqOverdue = isOverdue(lead, tab, sentMessages, templates);
+ const custom = hasCustomFollowupDue(lead, tab, followupCalls);
+ const isPending = autoSeqDue || autoSeqOverdue || custom.due || custom.overdue;
+ if (isPending) pending.push({
+ lead,
+ autoSeqOverdue,
+ customOverdue: custom.overdue,
+ customDue: custom.due,
+ });
+ });
+ pending.sort((a, b) => {
+ const scoreA = (a.autoSeqOverdue || a.customOverdue ? 2 : 0) + (a.customDue ? 1 : 0);
+ const scoreB = (b.autoSeqOverdue || b.customOverdue ? 2 : 0) + (b.customDue ? 1 : 0);
+ return scoreB - scoreA;
+ });
+ return { pendingLeads: pending, allLeads: filtered };
+ }, [filtered, tab, sentMessages, templates, followupCalls]);
+
  // Save/restore scroll
  useEffect(() => {
  return () => {
@@ -344,19 +403,28 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
  </div>
 
  {/* ── Stats pills ── */}
- {summaryCounts && !isLoading && (
- <div className="flex gap-2 px-4 py-2 flex-wrap">
- <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-green-100 text-green-700">
- {summaryCounts.dueToday} due today
- </span>
- <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-red-100 text-red-700">
- {summaryCounts.overdue} overdue
- </span>
- <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-gray-100 text-gray-600">
- {summaryCounts.done} sent
- </span>
- </div>
+ <div className="flex gap-1 px-4 py-2">
+ <button
+ type="button"
+ onClick={() => setSubTab('pending')}
+ className={cn(
+ 'flex-1 rounded-xl px-3 py-2 text-xs font-semibold transition-all',
+ subTab === 'pending' ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-100'
  )}
+ >
+ Pending Today {pendingLeads.length > 0 ? `(${pendingLeads.length})` : ''}
+ </button>
+ <button
+ type="button"
+ onClick={() => setSubTab('all')}
+ className={cn(
+ 'flex-1 rounded-xl px-3 py-2 text-xs font-semibold transition-all',
+ subTab === 'all' ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-100'
+ )}
+ >
+ All Leads ({allLeads.length})
+ </button>
+ </div>
 
  {/* ── Lead list ── */}
  <div
@@ -394,7 +462,7 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
  </div>
  ) : (
  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
- {filtered.map(lead => {
+ {(subTab === 'pending' ? pendingLeads.map(p => p.lead) : allLeads).map(lead => {
  const leadKey = getSentMessageKeyForLead(lead, tab);
  const isLeadSent = Boolean(leadKey && sentMessageKeys.has(leadKey));
  return (

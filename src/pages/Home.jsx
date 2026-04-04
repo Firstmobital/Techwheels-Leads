@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { supabaseApi } from '@/api/supabaseService';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
@@ -10,7 +10,7 @@ import AILeadCard from '../components/sales/AILeadCard';
 import WalkinFollowupTab from '../components/sales/WalkinFollowupTab';
 import { useAuth } from '@/lib/AuthContext';
 import { useCurrentUser } from '@/lib/CurrentUserContext';
-import { isAdminUser } from '@/lib/authUserUtils';
+import { isAdminUser, isSalesPerson, isCallingTeam } from '@/lib/authUserUtils';
 import {
   getLeadSourceForType,
   getSourceRecordIdForLead,
@@ -46,6 +46,8 @@ export default function Home() {
   const queryClient = useQueryClient();
 
   const isAdmin = isAdminUser(currentUser);
+  const isSalesperson = isSalesPerson(currentUser);
+  const isCallingTeamUser = isCallingTeam(currentUser);
 
   const { data: vanaLeads = [], isLoading: vanaLoading } = useQuery({
     queryKey: ['vna-stock'],
@@ -331,7 +333,20 @@ export default function Home() {
       .filter((tab) => tab.id !== activeTab && tab.count > 0);
   }, [activeTab, isSearchActive, tabData]);
 
-  const TABS = [...LEAD_TABS, ...(isAdmin ? ADMIN_TABS : [])];
+  const TABS = useMemo(() => {
+    const salespersonTabIds = ['matchtalk', 'vana', 'greenforms'];
+    const callingTeamTabIds = ['walkin-backend'];
+    if (isAdmin) return [...LEAD_TABS, ...ADMIN_TABS];
+    if (isCallingTeamUser) return LEAD_TABS.filter(t => callingTeamTabIds.includes(t.id));
+    return LEAD_TABS.filter(t => salespersonTabIds.includes(t.id));
+  }, [isAdmin, isCallingTeamUser]);
+
+  useEffect(() => {
+    if (TABS.length > 0 && !TABS.find(t => t.id === activeTab)) {
+      setActiveTab(TABS[0].id);
+    }
+  }, [TABS, activeTab]);
+
   const currentTab = TABS.find(t => t.id === activeTab);
   const current = tabData[activeTab];
   const isTemplatesTab = activeTab === 'templates';
