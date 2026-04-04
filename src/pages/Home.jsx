@@ -11,6 +11,7 @@ import WalkinFollowupTab from '../components/sales/WalkinFollowupTab';
 import { useAuth } from '@/lib/AuthContext';
 import { useCurrentUser } from '@/lib/CurrentUserContext';
 import { isAdminUser, isSalesPerson, isCallingTeam } from '@/lib/authUserUtils';
+import { toast } from 'sonner';
 import {
   getLeadSourceForType,
   getSourceRecordIdForLead,
@@ -193,7 +194,11 @@ export default function Home() {
       });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sent-messages'] }),
-    onError: () => queryClient.invalidateQueries({ queryKey: ['sent-messages'] }),
+    onError: (error) => {
+      console.error('Failed to insert sent_messages row:', error);
+      toast.error(error?.message || 'Failed to log sent message.');
+      queryClient.invalidateQueries({ queryKey: ['sent-messages'] });
+    },
   };
 
   const markSentMutation = useMutation(markSentMutationOptions);

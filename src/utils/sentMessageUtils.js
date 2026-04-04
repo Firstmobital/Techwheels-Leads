@@ -1,5 +1,5 @@
 // @ts-nocheck
-const VALID_LEAD_SOURCES = new Set(['walkin', 'ivr', 'ai', 'vna', 'matchtalk']);
+const VALID_LEAD_SOURCES = new Set(['walkin', 'ivr', 'ai', 'vna', 'matchtalk', 'greenforms']);
 const AI_FOLLOWUP_STEPS = ['M1', 'M2', 'M3', 'M4'];
 const AI_FOLLOWUP_DAY_OFFSETS = {
   M1: 1,
@@ -12,6 +12,7 @@ const TAB_TO_DEFAULT_SOURCE = {
   ai_leads: 'ai',
   vana: 'vna',
   matchtalk: 'matchtalk',
+  greenforms: 'greenforms',
 };
 
 const normalizeLeadSource = (value) => {
