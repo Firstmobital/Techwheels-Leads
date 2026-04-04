@@ -11,7 +11,7 @@ import LogCallModal from'./LogCallModal';
 import { supabaseApi } from'@/api/supabaseService';
 import { useMutation, useQueryClient, useQuery } from'@tanstack/react-query';
 import { useCurrentUser } from'@/lib/CurrentUserContext';
-import { supabaseClient } from'@/api/supabaseClient';
+import { supabase } from'@/api/supabaseClient';
 
 const UIButton = /** @type {any} */ (Button);
 
@@ -225,7 +225,7 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  const { data: callHistory = [] } = useQuery({
  queryKey: ['followup-calls', leadSource, sourceRecordId],
  queryFn: async () => {
- const { data } = await supabaseClient
+ const { data } = await supabase
  .from('walkin_followup_calls')
  .select('*, employees!caller_id(first_name, last_name)')
  .eq('lead_source', leadSource)
