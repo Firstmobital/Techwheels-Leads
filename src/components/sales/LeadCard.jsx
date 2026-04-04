@@ -753,7 +753,6 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  </div>
  )}
  </div>
- </div>
 
  <div className="mt-3 border-t border-gray-100 pt-3">
  <button

@@ -62,24 +62,6 @@ function isOverdue(lead, tab, sentMessages, templates) {
  return daysSince !== null && daysSince > nextDay;
 }
 
-function isDueToday(lead, tab, sentMessages, templates) {
- const key = getSentMessageKeyForLead(lead, tab);
- const history = sentMessages.filter(row => {
- const rowKey = (() => {
- const src = String(row?.lead_source ||'').trim().toLowerCase();
- const rec = String(row?.source_record_id ||'').trim();
- return (src && rec) ?`${src}:${rec}` : null;
- })();
- return key && rowKey && key === rowKey;
- });
- // 0 sent → first message is always due
- if (!history.length) return true;
-
- const seqTemplates = Array.isArray(templates) ? templates
- .filter(t => t?.step_number != null)
- .map((t, i) => ({ ...t, step_number: Math.max(1, toInt(t.step_number, i + 1)), delay_days: Math.max(0, toInt(t.delay_days, 0)) }))
-}
-
 function hasCustomFollowupDue(lead, tab, followupCalls) {
  const leadKey = getSentMessageKeyForLead(lead, tab);
  if (!leadKey) return { due: false, overdue: false };
