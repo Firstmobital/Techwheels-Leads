@@ -295,6 +295,29 @@ export default function HomeScreen() {
     activeTab,
   ]);
 
+  const statsSummary = useMemo(() => {
+    if (activeTab === "ai_leads") return null;
+    let dueToday = 0;
+    let overdue = 0;
+    let sent = 0;
+    filteredLeads.forEach((lead) => {
+      const leadKey = getSentMessageKeyForLead(lead, activeTab);
+      const history = sentMessages.filter((m) => {
+        const msgKey = getSentMessageKeyForRow(m);
+        return Boolean(leadKey && msgKey && msgKey === leadKey);
+      });
+      const relevant = templates.filter((t) => {
+        const category = toCanonicalCategory(t?.category || t?.source || "");
+        return (category === activeTab || category === "all" || category === "general") && t?.is_active !== false;
+      });
+      const nextStep = getNextDueStep(history, activeTab, relevant);
+      if (!nextStep) { sent++; return; }
+      if (nextStep.overdue) { overdue++; return; }
+      if (nextStep.daysUntil === 0) { dueToday++; }
+    });
+    return { dueToday, overdue, sent };
+  }, [filteredLeads, sentMessages, templates, activeTab]);
+
   const getMessageForStep = (tabId, lead, step) => {
     const customerName = lead?.customer_name || "Customer";
     const ppl = lead?.ppl || "";
@@ -808,6 +831,27 @@ export default function HomeScreen() {
           </Text>
         </View>
 
+        {statsSummary && !isLoading && (
+          <View style={styles.statsRow}>
+            <View style={[styles.statCard, statsSummary.dueToday > 0 && styles.statCardDueToday]}>
+              <Text style={[styles.statNumber, statsSummary.dueToday > 0 && styles.statNumberDueToday]}>
+                {statsSummary.dueToday}
+              </Text>
+              <Text style={styles.statLabel}>Due Today</Text>
+            </View>
+            <View style={[styles.statCard, statsSummary.overdue > 0 && styles.statCardOverdue]}>
+              <Text style={[styles.statNumber, statsSummary.overdue > 0 && styles.statNumberOverdue]}>
+                {statsSummary.overdue}
+              </Text>
+              <Text style={styles.statLabel}>Overdue</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statNumber}>{statsSummary.sent}</Text>
+              <Text style={styles.statLabel}>Sent</Text>
+            </View>
+          </View>
+        )}
+
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
         {isLoading ? (
@@ -1160,6 +1204,45 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#64748b",
     fontWeight: "600",
+  },
+  statsRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 10,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: "#ffffff",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  statCardDueToday: {
+    backgroundColor: "#f0fdf4",
+    borderColor: "#bbf7d0",
+  },
+  statCardOverdue: {
+    backgroundColor: "#fef2f2",
+    borderColor: "#fecaca",
+  },
+  statNumber: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#0f172a",
+  },
+  statNumberDueToday: {
+    color: "#16a34a",
+  },
+  statNumberOverdue: {
+    color: "#dc2626",
+  },
+  statLabel: {
+    fontSize: 10,
+    color: "#64748b",
+    fontWeight: "600",
+    marginTop: 2,
   },
   errorText: {
     color: "#dc2626",

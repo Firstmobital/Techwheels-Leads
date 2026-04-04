@@ -1,8 +1,8 @@
 // @ts-nocheck
-import React, { useState, useMemo } from'react';
+import React, { useState } from'react';
 import { Link, useLocation, useNavigate } from'react-router-dom';
 import { createPageUrl } from'@/utils';
-import { MessageCircle, Users, BarChart2, LogOut, Bell, Award } from'lucide-react';
+import { MessageCircle, Users, LogOut, Menu } from'lucide-react';
 import { cn } from'@/lib/utils';
 import { motion } from'framer-motion';
 import AppHeader from'@/components/shared/AppHeader';
@@ -12,16 +12,12 @@ import { isAdminUser } from'@/lib/authUserUtils';
 
 export default function Layout({ children, currentPageName }) {
  const [showLogoutDialog, setShowLogoutDialog] = useState(false);
+ const [sidebarOpen, setSidebarOpen] = useState(false);
  const location = useLocation();
  const navigate = useNavigate();
  const { logout } = useAuth();
  const { currentUser } = useCurrentUser();
  const isAdmin = isAdminUser(currentUser);
-
- const prefersDark = useMemo(() => {
- if (typeof window ==='undefined') return false;
- return window.matchMedia('(prefers-color-scheme: dark)').matches;
- }, []);
 
  const handleLogout = async () => {
  await logout();
@@ -35,29 +31,24 @@ export default function Layout({ children, currentPageName }) {
  // Nav items — always visible
  const navItems = [
  { to: createPageUrl('Home'), label:'Leads', icon: MessageCircle, page:'Home' },
- { to: createPageUrl('DailyDigest'), label:'Digest', icon: Bell, page:'DailyDigest' },
- { to: createPageUrl('Report'), label:'Report', icon: BarChart2, page:'Report' },
  ];
 
  // Admin-only nav items
  const adminNavItems = isAdmin ? [
- { to: createPageUrl('Accountability'), label:'Scores', icon: Award, page:'Accountability' },
  { to: createPageUrl('InviteUsers'), label:'Team', icon: Users, page:'InviteUsers' },
  ] : [];
 
  const allNavItems = [...navItems, ...adminNavItems];
 
- return (
- <div className={cn("min-h-screen", prefersDark ?'dark bg-gray-900' :'bg-gray-50')}>
- {/* Desktop Sidebar */}
- <aside
- className={cn(
-"hidden md:flex fixed left-0 top-0 h-screen w-[220px] border-r z-40 flex-col",
- prefersDark ?'bg-gray-800 border-gray-700' :'bg-white border-gray-100'
- )}
- >
- <div className="px-4 py-4 border-b border-gray-100 dark:border-gray-700">
- <h2 className={cn("text-sm font-semibold", prefersDark ?'text-white' :'text-gray-900')}>Navigation</h2>
+ const SidebarContents = () => (
+ <>
+ <div className="px-4 py-4 border-b border-gray-100">
+ <div className="flex items-center gap-2.5">
+ <div className="w-7 h-7 rounded-lg bg-green-500 flex items-center justify-center flex-shrink-0">
+ <span className="text-[10px] font-bold text-white">TW</span>
+ </div>
+ <h2 className="text-sm font-semibold text-gray-900">TechWheels</h2>
+ </div>
  </div>
  <nav className="flex-1 px-2 py-3 space-y-1">
  {allNavItems.map(item => {
@@ -67,11 +58,12 @@ export default function Layout({ children, currentPageName }) {
  <Link
  key={item.page}
  to={item.to}
+ onClick={() => setSidebarOpen(false)}
  className={cn(
 "w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all user-select-none",
  isActive
- ? (prefersDark ?"bg-gray-700 text-white" :"bg-gray-100 text-gray-900")
- : (prefersDark ?"text-gray-400 hover:bg-gray-700" :"text-gray-500 hover:bg-gray-50")
+ ? "bg-gray-100 text-gray-900"
+ : "text-gray-500 hover:bg-gray-50"
  )}
  >
  <Icon className="w-4 h-4" />
@@ -81,7 +73,7 @@ export default function Layout({ children, currentPageName }) {
  })}
  </nav>
  {!isHome && (
- <div className="p-2 border-t border-gray-100 dark:border-gray-700">
+ <div className="p-2 border-t border-gray-100">
  <button
  onClick={() => setShowLogoutDialog(true)}
  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium text-red-500 hover:bg-red-50 transition-all user-select-none"
@@ -91,10 +83,36 @@ export default function Layout({ children, currentPageName }) {
  </button>
  </div>
  )}
+ </>
+ );
+
+ return (
+ <div className="min-h-screen bg-gray-50">
+ {/* Desktop Sidebar — always visible on md+ */}
+ <aside className="hidden md:flex fixed left-0 top-0 h-screen w-[220px] border-r z-40 flex-col bg-white border-gray-100">
+ <SidebarContents />
  </aside>
 
+ {/* Mobile Drawer Overlay */}
+ {sidebarOpen && (
+ <div className="fixed inset-0 z-50 md:hidden">
+ {/* Backdrop */}
+ <div
+ className="absolute inset-0 bg-black/40"
+ onClick={() => setSidebarOpen(false)}
+ />
+ {/* Drawer panel */}
+ <aside className="absolute left-0 top-0 h-full w-[220px] flex flex-col bg-white border-r border-gray-100 shadow-xl">
+ <SidebarContents />
+ </aside>
+ </div>
+ )}
+
  <div className="min-h-screen flex flex-col md:ml-[220px]">
- <AppHeader currentPageName={currentPageName} />
+ <AppHeader
+ currentPageName={currentPageName}
+ onMenuClick={() => setSidebarOpen(true)}
+ />
  <motion.div
  key={location.pathname}
  initial={{ opacity: 0, x: 20 }}
@@ -105,12 +123,9 @@ export default function Layout({ children, currentPageName }) {
  {children}
  </motion.div>
 
- {/* Bottom Nav */}
+ {/* Bottom Nav — mobile only, full width */}
  <div
- className={cn(
-"fixed bottom-0 left-0 right-0 border-t flex justify-around z-50 max-w-lg mx-auto md:hidden",
- prefersDark ?'bg-gray-800 border-gray-700' :'bg-white border-gray-100'
- )}
+ className="fixed bottom-0 left-0 right-0 border-t flex justify-around z-40 md:hidden bg-white border-gray-100"
  style={{ paddingBottom:'env(safe-area-inset-bottom)' }}
  >
  {allNavItems.map(item => {
@@ -122,9 +137,7 @@ export default function Layout({ children, currentPageName }) {
  to={item.to}
  className={cn(
 "flex flex-col items-center gap-1 px-4 py-2 rounded-xl text-xs font-medium transition-all user-select-none",
- isActive
- ? (prefersDark ?"text-white" :"text-gray-900")
- : (prefersDark ?"text-gray-400" :"text-gray-400")
+ isActive ? "text-gray-900" : "text-gray-400"
  )}
  >
  <Icon className="w-5 h-5" />

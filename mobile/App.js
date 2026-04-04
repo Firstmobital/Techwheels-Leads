@@ -104,9 +104,9 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#e2e8f0',
     backgroundColor: '#ffffff',
-    paddingHorizontal: 10,
     paddingVertical: 8,
-    gap: 8,
+    paddingHorizontal: 8,
+    gap: 6,
   },
   tabButton: {
     flex: 1,

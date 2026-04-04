@@ -261,27 +261,6 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
 
  return (
  <div className="flex flex-col h-full">
- {/* ── Summary bar ── */}
- {summaryCounts && !isLoading && (
- <div className="grid grid-cols-4 gap-2 px-4 pt-3 pb-1">
- <div className="bg-gray-50 rounded-xl p-2 text-center border border-gray-100">
- <div className="text-sm font-semibold text-gray-900">{summaryCounts.total}</div>
- <div className="text-[10px] text-gray-400">Total</div>
- </div>
- <div className={cn("rounded-xl p-2 text-center border", summaryCounts.overdue > 0 ?"bg-red-50 border-red-200" :"bg-gray-50 border-gray-100")}>
- <div className={cn("text-sm font-semibold", summaryCounts.overdue > 0 ?"text-red-600" :"text-gray-900")}>{summaryCounts.overdue}</div>
- <div className="text-[10px] text-gray-400">Overdue</div>
- </div>
- <div className={cn("rounded-xl p-2 text-center border", summaryCounts.dueToday > 0 ?"bg-orange-50 border-orange-200" :"bg-gray-50 border-gray-100")}>
- <div className={cn("text-sm font-semibold", summaryCounts.dueToday > 0 ?"text-orange-600" :"text-gray-900")}>{summaryCounts.dueToday}</div>
- <div className="text-[10px] text-gray-400">Due Today</div>
- </div>
- <div className={cn("rounded-xl p-2 text-center border", summaryCounts.done > 0 ?"bg-emerald-50 border-emerald-200" :"bg-gray-50 border-gray-100")}>
- <div className={cn("text-sm font-semibold", summaryCounts.done > 0 ?"text-emerald-600" :"text-gray-900")}>{summaryCounts.done}</div>
- <div className="text-[10px] text-gray-400">Done</div>
- </div>
- </div>
- )}
 
  {/* ── Search & Filters ── */}
  <div className="px-4 pt-2 pb-2 space-y-2 bg-gray-50/80 backdrop-blur-sm sticky top-0 z-10">
@@ -364,6 +343,21 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
  </div>
  </div>
 
+ {/* ── Stats pills ── */}
+ {summaryCounts && !isLoading && (
+ <div className="flex gap-2 px-4 py-2 flex-wrap">
+ <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-green-100 text-green-700">
+ {summaryCounts.dueToday} due today
+ </span>
+ <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-red-100 text-red-700">
+ {summaryCounts.overdue} overdue
+ </span>
+ <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-gray-100 text-gray-600">
+ {summaryCounts.done} sent
+ </span>
+ </div>
+ )}
+
  {/* ── Lead list ── */}
  <div
  ref={scrollRef}
@@ -378,7 +372,7 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
  </div>
  )}
  {isLoading ? (
- <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+ <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
  {[1,2,3,4].map(i => (
  <div key={i} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 animate-pulse">
  <div className="flex items-start justify-between gap-3">
@@ -399,7 +393,7 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
  <p className="text-xs mt-1">Try adjusting your filters</p>
  </div>
  ) : (
- <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+ <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
  {filtered.map(lead => {
  const leadKey = getSentMessageKeyForLead(lead, tab);
  const isLeadSent = Boolean(leadKey && sentMessageKeys.has(leadKey));

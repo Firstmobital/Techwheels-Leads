@@ -339,15 +339,15 @@ export default function Home() {
   const isWalkinBackendTab = activeTab === 'walkin-backend';
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col max-w-lg mx-auto">
+    <div className="min-h-screen bg-gray-50 flex flex-col max-w-lg mx-auto">
       {/* Header */}
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 px-5 pt-6 pb-4 safe-area-top">
+      <div className="bg-white border-b border-gray-100 px-5 pt-6 pb-4 safe-area-top">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Dealership Leads</h1>
+          <h1 className="text-xl font-bold text-gray-900">Dealership Leads</h1>
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 px-4 py-3">
+      <div className="bg-white border-b border-gray-100 px-4 py-3">
         <div className="relative">
           <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
@@ -355,7 +355,7 @@ export default function Home() {
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             placeholder="Search by name or phone..."
-            className="w-full rounded-xl border border-gray-200 bg-white dark:bg-gray-700 dark:border-gray-600 pl-9 pr-9 py-2 text-sm text-gray-700 dark:text-gray-100"
+            className="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-9 py-2 text-sm text-gray-700"
           />
           {searchQuery.trim() && (
             <button
@@ -370,14 +370,14 @@ export default function Home() {
         </div>
 
         {isSearchActive && (
-          <div className="mt-2 text-[11px] text-gray-500 dark:text-gray-300">
+          <div className="mt-2 text-[11px] text-gray-500">
             Showing results across all tabs
           </div>
         )}
       </div>
 
       {/* Tabs */}
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 px-4 flex gap-1 py-2">
+      <div className="bg-white border-b border-gray-100 px-4 flex gap-1 py-2">
         {TABS.map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -389,8 +389,8 @@ export default function Home() {
               className={cn(
                 "flex-1 flex flex-col items-center gap-1 py-2.5 px-2 rounded-xl transition-all text-xs font-medium",
                 isActive
-                  ? "bg-gray-900 dark:bg-gray-700 text-white shadow-lg shadow-gray-900/20"
-                  : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  ? "bg-gray-900 text-white shadow-lg shadow-gray-900/20"
+                  : "text-gray-500 hover:bg-gray-100"
               )}
             >
               <Icon className="w-4 h-4" />

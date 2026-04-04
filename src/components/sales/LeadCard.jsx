@@ -366,13 +366,11 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  const sentCount = historyForLead.length;
 
  // Urgency level for border color
- const urgencyBorder = allDone
- ?'border-l-4 border-l-emerald-400'
- : nextDue?.overdue
- ?'border-l-4 border-l-red-400'
- : (nextDue?.daysUntil === 0)
- ?'border-l-4 border-l-orange-400'
- :'border-l-0';
+ const urgencyBorder = nextDue?.overdue
+ ?'border-l-2 border-l-red-500'
+ : (!allDone && nextDue?.daysUntil === 0)
+ ?'border-l-2 border-l-green-500'
+ :'';
 
  // Overdue days label
  const overdueDays = nextDue?.overdue
@@ -427,6 +425,11 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  {!allDone && nextDue?.daysUntil > 0 && (
  <span className="text-[10px] font-medium text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full flex-shrink-0">
  {nextStepLabel} in {nextDue.daysUntil}d
+ </span>
+ )}
+ {!allDone && isTemplateDrivenTab && totalSteps > 0 && (
+ <span className="text-[10px] font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full flex-shrink-0">
+ Step {Math.min(sentCount + 1, totalSteps)} / {totalSteps}
  </span>
  )}
  </div>
@@ -523,9 +526,12 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  <div className="flex flex-col items-center gap-1">
  <UIButton
  onClick={() => handleSend(resolvedDefault, dbStepTemplate)}
+ variant="outline"
  className={cn(
-"rounded-xl h-12 w-12 p-0 shadow-sm",
- nextDue?.overdue ?"bg-red-500 hover:bg-red-600" : accentColor
+"rounded-xl h-12 w-12 p-0 shadow-sm border",
+ nextDue?.overdue
+ ?"bg-red-500 hover:bg-red-600 text-white border-red-500"
+ :"bg-green-50 hover:bg-green-100 border-green-200 text-green-700"
  )}
  disabled={!waLink}
  >
