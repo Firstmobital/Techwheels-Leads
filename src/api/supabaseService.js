@@ -719,16 +719,39 @@ export const supabaseApi = {
     },
 
     logCall: async (payload) => {
-      const { walkin_id, caller_id, verdict, notes, next_call_date, escalate_to_name } = payload;
+      const {
+        walkin_id,
+        caller_id,
+        verdict,
+        notes,
+        next_call_date,
+        escalate_to_name,
+        lead_source,
+        source_record_id,
+      } = payload;
 
       // 1. Insert call record
       const { data: callRecord, error: insertError } = await supabase
         .from('walkin_followup_calls')
-        .insert({ walkin_id, caller_id, verdict, notes, next_call_date, escalate_to_name })
+        .insert({
+          walkin_id: walkin_id ?? null,
+          caller_id: caller_id ?? null,
+          verdict,
+          notes,
+          next_call_date,
+          escalate_to_name,
+          lead_source: lead_source ?? null,
+          source_record_id: source_record_id ?? null,
+        })
         .select()
         .single();
       
       throwIfError(insertError);
+
+      // Universal non-walkin call logs do not map to showroom_walkins updates.
+      if (!walkin_id) {
+        return { call: callRecord, walkin: null };
+      }
 
       // 2. Determine new followup_status from verdict
       let newStatus = 'called';

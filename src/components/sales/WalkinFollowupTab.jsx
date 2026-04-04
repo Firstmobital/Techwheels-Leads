@@ -81,6 +81,17 @@ export default function WalkinFollowupTab() {
     await logCallMutation.mutateAsync(payload);
   };
 
+  const handleCallClick = (walkin) => {
+    if (!walkin?.id) return;
+    logCallMutation.mutate({
+      walkin_id: walkin.id,
+      lead_source: 'walkin',
+      source_record_id: String(walkin.id),
+      verdict: 'call_later',
+      notes: 'Call button clicked',
+    });
+  };
+
   const isLoading = isLoadingQueue || isLoadingStats;
   const stats = isAdmin ? statsData : null;
 
@@ -211,6 +222,7 @@ export default function WalkinFollowupTab() {
                 key={walkin.id}
                 walkin={walkin}
                 onLogCall={() => setSelectedWalkin(walkin)}
+                onCallClick={handleCallClick}
               />
             ))}
           </div>

@@ -330,6 +330,17 @@ export default function AILeadCard({
 
  const openCall = () => {
  if (!callUrl) return;
+ void supabaseApi.walkinFollowup.logCall({
+ walkin_id: null,
+ lead_source:'ai',
+ source_record_id: lead?.id ? String(lead.id) : null,
+ caller_id: currentUser?.authUserId ?? null,
+ verdict:'call_later',
+ notes:'Call button clicked',
+ }).catch((error) => {
+ console.error('Failed to log AI call click:', error);
+ toast.error(error?.message ||'Failed to log call click');
+ });
  window.location.href = callUrl;
  };
 

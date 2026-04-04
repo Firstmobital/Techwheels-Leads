@@ -103,6 +103,17 @@ export default function GreenFormLeadRow({ lead, onUpdate }) {
 
   const openCall = () => {
     if (!callUrl) return;
+    void supabaseApi.walkinFollowup.logCall({
+      walkin_id: null,
+      lead_source: resolveSourceType(lead),
+      source_record_id: resolveSourceRecordId(lead),
+      caller_id: currentUser?.authUserId ?? null,
+      verdict: "call_later",
+      notes: "Call button clicked",
+    }).catch((error) => {
+      console.error("Failed to log Green Form call click:", error);
+      toast.error(error?.message || "Failed to log call click");
+    });
     window.location.href = callUrl;
   };
 

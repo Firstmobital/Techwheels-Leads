@@ -52,7 +52,7 @@ function isOverdue(dateString) {
   }
 }
 
-export default function WalkinFollowupCard({ walkin, onLogCall }) {
+export default function WalkinFollowupCard({ walkin, onLogCall, onCallClick }) {
   const [activeInfoTab, setActiveInfoTab] = useState('details');
 
   if (!walkin) {
@@ -83,6 +83,9 @@ export default function WalkinFollowupCard({ walkin, onLogCall }) {
 
   const handleCall = () => {
     if (!callLink) return;
+    if (typeof onCallClick === 'function') {
+      onCallClick(walkin);
+    }
     window.location.href = callLink;
   };
 

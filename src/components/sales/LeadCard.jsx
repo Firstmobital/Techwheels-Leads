@@ -397,6 +397,16 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
 
  const handleCall = () => {
  if (!callLink) return;
+ void supabaseApi.walkinFollowup.logCall({
+ walkin_id: null,
+ lead_source: tab === 'vana' ? 'vna' : tab,
+ source_record_id: getSourceRecordIdForLead(lead, tab),
+ caller_id: currentUser?.authUserId ?? null,
+ verdict: 'call_later',
+ notes: 'Call button clicked',
+ }).catch((error) => {
+ console.error('Failed to log call click:', error);
+ });
  window.location.href = callLink;
  };
 
@@ -691,7 +701,6 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  {[
  ['Current Location', normalizedLead.current_location],
  ['Ageing Days', normalizedLead.ageing_days],
- ['Model', typeof normalizedLead.product_line === 'string' ? normalizedLead.product_line.trim() : normalizedLead.product_line],
  ['Sales Person', typeof normalizedLead.sales_team === 'string' ? normalizedLead.sales_team.trim() : normalizedLead.sales_team],
  ['PL', normalizedLead.pl],
  ['Colour', normalizedLead.colour],
