@@ -689,6 +689,8 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  </div>
  <div className="space-y-1">
  {[
+ ['Current Location', normalizedLead.current_location],
+ ['Ageing Days', normalizedLead.ageing_days],
  ['Model', typeof normalizedLead.product_line === 'string' ? normalizedLead.product_line.trim() : normalizedLead.product_line],
  ['Sales Person', typeof normalizedLead.sales_team === 'string' ? normalizedLead.sales_team.trim() : normalizedLead.sales_team],
  ['PL', normalizedLead.pl],
