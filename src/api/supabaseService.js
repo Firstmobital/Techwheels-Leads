@@ -669,7 +669,7 @@ export const supabaseApi = {
           const idChunk = walkinIds.slice(index, index + idChunkSize);
           const { data: callHistory, error: callError } = await supabase
             .from('walkin_followup_calls')
-            .select('walkin_id, verdict, created_at')
+            .select('walkin_id, verdict, notes, created_at')
             .in('walkin_id', idChunk);
 
           throwIfError(callError);
@@ -699,7 +699,9 @@ export const supabaseApi = {
         return {
           ...walkin,
           call_count: calls.length,
-          last_verdict: lastCall?.verdict ?? null
+          last_verdict: lastCall?.verdict ?? null,
+          last_call_date: lastCall?.created_at ?? null,
+          call_history: sortedCalls,
         };
       });
 
