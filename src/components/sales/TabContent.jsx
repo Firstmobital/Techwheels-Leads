@@ -128,6 +128,7 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
  const [pplFilter, setPplFilter] = useState('all');
  const [sourceFilter, setSourceFilter] = useState('all');
  const [branchFilter, setBranchFilter] = useState('all');
+ const [callOutcomeFilter, setCallOutcomeFilter] = useState('all');
  const [isPulling, setIsPulling] = useState(false);
 
  const scrollRef = useRef(null);
@@ -169,6 +170,14 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
  return [...vals].sort();
  }, [leads, tab]);
 
+ const callOutcomeOptions = useMemo(() => {
+ const vals = new Set();
+ followupCalls.forEach(call => {
+ if (call.verdict) vals.add(call.verdict);
+ });
+ return [...vals].sort();
+ }, [followupCalls]);
+
  const caOptions = useMemo(() => {
  const vals = new Set();
  leads.forEach(l => l.ca_name && vals.add(l.ca_name));
@@ -208,9 +217,28 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
  const matchSource = sourceFilter ==='all' || resolvedGreenFormSource === sourceFilter;
  const matchBranch = branchFilter ==='all' || lead.branch === branchFilter;
 
- return matchSearch && matchCar && matchPerson && matchAllocation && matchPpl && matchSource && matchBranch;
+ // Call Outcome filter
+ let matchCallOutcome = callOutcomeFilter === 'all';
+ if (callOutcomeFilter !== 'all') {
+ const leadKey = getSentMessageKeyForLead(lead, tab);
+ if (leadKey) {
+ const calls = followupCalls.filter(c => {
+ const src = String(c.lead_source || '').trim().toLowerCase();
+ const rec = String(c.source_record_id || '').trim();
+ return `${src}:${rec}` === leadKey;
  });
- }, [leads, search, carFilter, personFilter, allocationFilter, pplFilter, sourceFilter, branchFilter, tab]);
+ if (calls.length > 0) {
+ const latestCall = calls.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+ matchCallOutcome = latestCall.verdict === callOutcomeFilter;
+ } else {
+ matchCallOutcome = false;
+ }
+ }
+ }
+
+ return matchSearch && matchCar && matchPerson && matchAllocation && matchPpl && matchSource && matchBranch && matchCallOutcome;
+ });
+ }, [leads, search, carFilter, personFilter, allocationFilter, pplFilter, sourceFilter, branchFilter, tab, callOutcomeFilter, followupCalls]);
 
  const sentTodayLeadKeys = useMemo(() => {
  const start = new Date();
@@ -380,6 +408,27 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
  <MobileSelect value={branchFilter} onValueChange={setBranchFilter} placeholder="Branch" className="flex-1">
  <UISelectItem value="all">All Branch</UISelectItem>
  {branchOptions.map(b => <UISelectItem key={b} value={b}>{b}</UISelectItem>)}
+ </MobileSelect>
+ )}
+ {callOutcomeOptions.length > 0 && (
+ <MobileSelect value={callOutcomeFilter} onValueChange={setCallOutcomeFilter} placeholder="Call Outcome" className="flex-1">
+ <UISelectItem value="all">All Outcomes</UISelectItem>
+ {callOutcomeOptions.map(outcome => {
+ const outcomeLabels = {
+ very_interested: 'Very interested',
+ needs_info: 'Needs info',
+ not_reachable: 'Not reachable',
+ call_later: 'Call later',
+ needs_discount: 'Needs discount',
+ escalate: 'Escalate',
+ booked: 'Booked',
+ not_interested: 'Not interested',
+ interested: 'Interested',
+ callback: 'Callback',
+ already_billed: 'Already billed',
+ };
+ return <UISelectItem key={outcome} value={outcome}>{outcomeLabels[outcome] || outcome}</UISelectItem>;
+ })}
  </MobileSelect>
  )}
  {tab ==='vana' && (

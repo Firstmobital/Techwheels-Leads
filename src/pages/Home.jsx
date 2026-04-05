@@ -130,6 +130,11 @@ export default function Home() {
     queryFn: () => supabaseApi.entities.Template.list(),
   });
 
+  const { data: followupCalls = [] } = useQuery({
+    queryKey: ['followup-calls'],
+    queryFn: () => supabaseApi.entities.WalkinFollowupCall.list('-created_at'),
+  });
+
   const sentMessageKeys = useMemo(() => {
     const keys = new Set();
     sentMessages.forEach((row) => {
@@ -602,6 +607,7 @@ export default function Home() {
               templates={allTemplates}
               isAdmin={isAdmin}
               users={users}
+              followupCalls={followupCalls}
             />
           )
         )}

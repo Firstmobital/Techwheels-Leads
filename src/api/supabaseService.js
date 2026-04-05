@@ -13,7 +13,8 @@ const OPERATIONAL_ENTITY_TABLES = {
   LeadNote: 'lead_notes',
   GreenFormClosureRequest: 'greenform_closure_requests',
   Employee: 'employees',
-  Role: 'roles'
+  Role: 'roles',
+  WalkinFollowupCall: 'walkin_followup_calls'
 };
 
 const getEntityTable = (entityName) => {
