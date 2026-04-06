@@ -494,6 +494,7 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  {templateButtons.map(({ template, label, messageText }, idx) => {
  const stepSent = idx < sentCount;
  const isNextStep = idx === sentCount;
+ const isClickableToday = isNextStep && nextDue?.daysUntil === 0;
  return (
  <UIButton
  key={template.id || label}
@@ -501,14 +502,12 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  className={cn(
 'rounded-lg h-9 px-2 text-[11px] font-semibold shadow-sm',
  stepSent
- ?'bg-emerald-50 border border-emerald-300 text-emerald-700 hover:bg-emerald-100'
- : isNextStep && nextDue?.overdue
- ?'bg-red-500 hover:bg-red-600 text-white'
- : isNextStep && nextDue?.daysUntil === 0
+ ?'bg-emerald-50 border border-emerald-300 text-emerald-700'
+ : isClickableToday
  ?'bg-orange-500 hover:bg-orange-600 text-white'
- :'bg-green-600 hover:bg-green-700 text-white'
+ :'bg-gray-100 border border-gray-200 text-gray-400 cursor-not-allowed'
  )}
- disabled={!buildWhatsAppUrl(resolvedPhone, messageText)}
+ disabled={!buildWhatsAppUrl(resolvedPhone, messageText) || !isClickableToday}
  title={`Send ${label}`}
  >
  {stepSent ?'✓' :''}{label}
