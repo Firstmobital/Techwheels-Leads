@@ -274,8 +274,13 @@ export default function Home() {
   }, [baseMatchLeads, filterLeadByNameAndPhone, isSearchActive]);
 
   const visibleGreenLeads = useMemo(() => {
-    if (!isSearchActive) return baseGreenLeads;
-    return baseGreenLeads.filter((lead) => filterLeadByNameAndPhone(lead));
+    const march1st2026 = new Date('2026-03-01').getTime();
+    const dateFiltered = baseGreenLeads.filter((lead) => {
+      const createdAt = lead?.created_at ? new Date(lead.created_at).getTime() : 0;
+      return createdAt >= march1st2026;
+    });
+    if (!isSearchActive) return dateFiltered;
+    return dateFiltered.filter((lead) => filterLeadByNameAndPhone(lead));
   }, [baseGreenLeads, filterLeadByNameAndPhone, isSearchActive]);
 
   const visibleAILeads = useMemo(() => {
