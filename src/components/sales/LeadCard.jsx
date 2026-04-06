@@ -3,9 +3,8 @@ import React, { useMemo, useState } from'react';
 import { MessageCircle, CheckCircle2, Car, Phone, User, Clock, PhoneCall, ChevronDown, ChevronUp, MessageSquare } from'lucide-react';
 import { Button } from"@/components/ui/button";
 import { cn } from"@/lib/utils";
-import { differenceInDays } from'date-fns';
 import { getNormalizedLead } from'./leadDataHelper';
-import { matchesSentMessageToLead, getSourceRecordIdForLead } from'@/utils/sentMessageUtils';
+import { matchesSentMessageToLead, getSourceRecordIdForLead, getNonAIFollowupState } from'@/utils/sentMessageUtils';
 import { buildCallUrl, buildWhatsAppUrl } from'@/utils/phone';
 import LogCallModal from'./LogCallModal';
 import { supabaseApi } from'@/api/supabaseService';
@@ -14,10 +13,6 @@ import { useCurrentUser } from'@/lib/CurrentUserContext';
 import { supabase } from'@/api/supabaseClient';
 
 const UIButton = /** @type {any} */ (Button);
-
-// Legacy day-based follow-up sequence (used when templates don't define delay/step).
-const FOLLOW_UP_DAYS = [1, 2, 5];
-const MATCHTALK_FOLLOW_UP_DAYS = [1, 2, 4];
 
 const CATEGORY_ALIASES = {
  vana: ['vana','vna'],
@@ -72,55 +67,6 @@ const RESPONSE_OUTCOMES = [
  { value:'already_billed', label:'Already Billed', color:'text-purple-700 bg-purple-50 border-purple-200' },
 ];
 
-function getDaysSinceFirstSent(history) {
- if (!history?.length) return null;
- const first = [...history].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0];
- if (!first?.created_at) return null;
- return differenceInDays(new Date(), new Date(first.created_at));
-}
-
-function getNextDueStep(history, tab, sequenceTemplates = []) {
- const sentCount = history?.length || 0;
-
- if (sequenceTemplates.length > 0) {
- if (sentCount >= sequenceTemplates.length) return null;
-
- const nextTemplate = sequenceTemplates[sentCount];
- const nextStep = Math.max(1, toInt(nextTemplate?.step_number, sentCount + 1));
- const nextDelay = Math.max(0, toInt(nextTemplate?.delay_days, 0));
-
- const daysSince = getDaysSinceFirstSent(history);
- if (daysSince === null) {
- return { step: nextStep, daysUntil: nextDelay, overdue: false };
- }
-
- if (daysSince >= nextDelay) {
- return { step: nextStep, daysUntil: 0, overdue: daysSince > nextDelay };
- }
-
- return { step: nextStep, daysUntil: nextDelay - daysSince, overdue: false };
- }
-
- const days = tab ==='matchtalk' ? MATCHTALK_FOLLOW_UP_DAYS : FOLLOW_UP_DAYS;
-
- if (sentCount >= days.length) return null;
-
- const nextStep = days[sentCount];
- if (nextStep === 1) {
- return { step: 1, daysUntil: 0, overdue: false };
- }
-
- const daysSince = getDaysSinceFirstSent(history);
- if (daysSince === null) {
- return { step: nextStep, daysUntil: nextStep, overdue: false };
- }
-
- if (daysSince >= nextStep) {
- return { step: nextStep, daysUntil: 0, overdue: true };
- }
-
- return { step: nextStep, daysUntil: nextStep - daysSince, overdue: false };
-}
 
 // ─── Response Log Panel ────────────────────────────────────────────────────────
 function ResponseLogPanel({ lead, tab, onClose }) {
@@ -266,7 +212,7 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  }, [templates, tab]);
 
  const sequenceTemplates = useMemo(() => {
- const normalized = relevantTemplates
+ return relevantTemplates
  .filter((template) => template?.step_number !== null && template?.step_number !== undefined)
  .map((template, index) => ({
  ...template,
@@ -277,14 +223,18 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  if (a.step_number !== b.step_number) return a.step_number - b.step_number;
  return a.delay_days - b.delay_days;
  });
-
- const hasConfiguredTiming = normalized.some((template) => template.step_number > 1 || template.delay_days > 0);
- return hasConfiguredTiming ? normalized : [];
  }, [relevantTemplates]);
 
  const historyForLead = sentMessages.filter((row) => matchesSentMessageToLead(row, lead, tab));
- const nextDue = getNextDueStep(historyForLead, tab, sequenceTemplates);
- const allDone = !nextDue;
+ const followupState = getNonAIFollowupState(historyForLead, tab, templates);
+ const nextDue = followupState.isDone
+ ? null
+ : {
+ step: followupState.nextStep,
+ daysUntil: followupState.daysUntil,
+ overdue: followupState.overdue,
+ };
+ const allDone = followupState.isDone;
 
  // For current step, pick the right message
  const stepMessages = FOLLOW_UP_MESSAGES[tab] || FOLLOW_UP_MESSAGES.greenforms;
@@ -414,11 +364,7 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  // Use sequenceTemplates count if available, then fall back to the actual number
  // of relevant templates for this tab. Only use the legacy FOLLOW_UP_DAYS length
  // as a last resort when there are no templates configured at all.
- const totalSteps = sequenceTemplates.length > 0
-   ? sequenceTemplates.length
-   : relevantTemplates.length > 0
-     ? relevantTemplates.length
-     : (tab ==='matchtalk' ? MATCHTALK_FOLLOW_UP_DAYS : FOLLOW_UP_DAYS).length;
+ const totalSteps = followupState.totalSteps;
  const sentCount = historyForLead.length;
 
  // Urgency level for border color
@@ -429,22 +375,14 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  :'';
 
  // Overdue days label
- const overdueDays = nextDue?.overdue
- ? getDaysSinceFirstSent(historyForLead) !== null
- ? getDaysSinceFirstSent(historyForLead) - (sequenceTemplates[sentCount - 1]?.delay_days ?? (tab ==='matchtalk' ? MATCHTALK_FOLLOW_UP_DAYS : FOLLOW_UP_DAYS)[sentCount - 1] ?? 0)
- : null
- : null;
+ const overdueDays = followupState.overdue ? followupState.overdueDays : null;
 
  // Step label for WA button 
- const nextStepLabel = sequenceTemplates.length > 0 && nextDue?.step
+ const nextStepLabel = followupState.mode ==='sequence' && sequenceTemplates.length > 0 && nextDue?.step
  ?`M${sequenceTemplates.findIndex(t => toInt(t.step_number, 0) === nextDue.step) + 1}`
  : nextDue?.step ?`Step ${nextDue.step}` : null;
 
- const days = sequenceTemplates.length > 0
- ? sequenceTemplates.map((template, index) => Math.max(1, toInt(template?.step_number, index + 1)))
- : (tab ==='matchtalk' ? MATCHTALK_FOLLOW_UP_DAYS : FOLLOW_UP_DAYS);
- const dueLabel = sequenceTemplates.length > 0 ?'Step' :'Day';
- const sentSteps = new Set(days.slice(0, sentCount));
+ const dueLabel = followupState.mode ==='sequence' ?'Step' :'Day';
 
  return (
  <div className={cn(

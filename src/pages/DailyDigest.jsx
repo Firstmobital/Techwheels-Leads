@@ -5,19 +5,10 @@ import { supabase } from '@/api/supabaseClient';
 import { useQuery } from '@tanstack/react-query';
 import { useCurrentUser } from '@/lib/CurrentUserContext';
 import { isAdminUser } from '@/lib/authUserUtils';
-import { differenceInDays, format, parseISO, isBefore, startOfDay } from 'date-fns';
+import { format, parseISO, isBefore, startOfDay } from 'date-fns';
 import { Bell, CheckCircle2, Clock, AlertTriangle, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { getSentMessageKeyForLead } from '@/utils/sentMessageUtils';
-
-const toInt = (v, fb) => { const p = Number.parseInt(String(v ?? '').trim(), 10); return Number.isFinite(p) ? p : fb; };
-
-function getDaysSinceFirstSent(history) {
-  if (!history?.length) return null;
-  const first = [...history].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0];
-  if (!first?.created_at) return null;
-  return differenceInDays(new Date(), new Date(first.created_at));
-}
+import { getSentMessageKeyForLead, getNonAIFollowupState } from '@/utils/sentMessageUtils';
 
 function getLeadStatus(lead, tab, sentMessages, templates) {
   const key = getSentMessageKeyForLead(lead, tab);
@@ -27,53 +18,37 @@ function getLeadStatus(lead, tab, sentMessages, templates) {
     const rowKey = (src && rec) ? `${src}:${rec}` : null;
     return key && rowKey && key === rowKey;
   });
-
-  const seqTemplates = Array.isArray(templates)
-    ? templates
-        .filter(t => t?.step_number != null)
-        .map((t, i) => ({ ...t, step_number: Math.max(1, toInt(t.step_number, i + 1)), delay_days: Math.max(0, toInt(t.delay_days, 0)) }))
-        .sort((a, b) => a.step_number - b.step_number)
-    : [];
-  const hasConfigured = seqTemplates.some(t => t.step_number > 1 || t.delay_days > 0);
-  const seq = hasConfigured ? seqTemplates : [];
-  const MATCHTALK = [1, 2, 4];
-  const DEFAULT = [1, 2, 5];
-  const legacyDays = tab === 'matchtalk' ? MATCHTALK : DEFAULT;
-  const totalSteps = seq.length > 0 ? seq.length : legacyDays.length;
-  const sentCount = history.length;
-
-  if (sentCount >= totalSteps) return { status: 'done', nextStep: null, daysUntil: null, overdue: false, sentCount, totalSteps };
-
-  if (sentCount === 0) {
-    return { status: 'pending', nextStep: 1, daysUntil: 0, overdue: false, sentCount, totalSteps };
-  }
-
-  const daysSince = getDaysSinceFirstSent(history);
-
-  if (seq.length > 0) {
-    const nextDelay = Math.max(0, toInt(seq[sentCount]?.delay_days, 0));
-    const overdue = daysSince !== null && daysSince > nextDelay;
-    const dueNow = daysSince !== null && daysSince >= nextDelay;
+  const state = getNonAIFollowupState(history, tab, templates);
+  if (state.isDone) {
     return {
-      status: overdue ? 'overdue' : dueNow ? 'due' : 'scheduled',
-      nextStep: sentCount + 1,
-      daysUntil: dueNow ? 0 : nextDelay - (daysSince ?? 0),
-      overdue,
-      sentCount,
-      totalSteps,
+      status: 'done',
+      nextStep: null,
+      daysUntil: null,
+      overdue: false,
+      sentCount: state.sentCount,
+      totalSteps: state.totalSteps,
     };
   }
 
-  const nextDay = legacyDays[sentCount];
-  const overdue = daysSince !== null && daysSince > nextDay;
-  const dueNow = daysSince !== null && daysSince >= nextDay;
+  if (state.sentCount === 0) {
+    return {
+      status: 'pending',
+      nextStep: state.nextStep,
+      daysUntil: 0,
+      overdue: false,
+      sentCount: state.sentCount,
+      totalSteps: state.totalSteps,
+    };
+  }
+
+  const dueNow = state.daysUntil === 0;
   return {
-    status: overdue ? 'overdue' : dueNow ? 'due' : 'scheduled',
-    nextStep: nextDay,
-    daysUntil: dueNow ? 0 : nextDay - (daysSince ?? 0),
-    overdue,
-    sentCount,
-    totalSteps,
+    status: state.overdue ? 'overdue' : dueNow ? 'due' : 'scheduled',
+    nextStep: state.nextStep,
+    daysUntil: state.daysUntil,
+    overdue: state.overdue,
+    sentCount: state.sentCount,
+    totalSteps: state.totalSteps,
   };
 }
 

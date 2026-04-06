@@ -390,6 +390,12 @@ export default function HomeScreen() {
 
     const sentCount = history?.length || 0;
 
+    // Single template is treated as one-off messaging with no scheduled "next in X days".
+    if (normalizedSequenceTemplates.length === 1) {
+      if (sentCount >= 1) return null;
+      return { step: 1, overdue: false, daysUntil: 0 };
+    }
+
     if (sequenceTemplates.length > 0) {
       if (sentCount >= sequenceTemplates.length) return null;
 

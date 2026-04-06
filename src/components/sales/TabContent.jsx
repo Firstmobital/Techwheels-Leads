@@ -5,8 +5,7 @@ import { Input } from"@/components/ui/input";
 import { Button } from"@/components/ui/button";
 import { SelectItem } from"@/components/ui/select";
 import MobileSelect from'@/components/shared/MobileSelect';
-import { getSentMessageKeyForLead } from'@/utils/sentMessageUtils';
-import { differenceInDays } from'date-fns';
+import { getSentMessageKeyForLead, getNonAIFollowupState } from'@/utils/sentMessageUtils';
 import { cn } from'@/lib/utils';
 
 import LeadCard from'./LeadCard';
@@ -15,51 +14,20 @@ const UIInput = /** @type {any} */ (Input);
 const UIButton = /** @type {any} */ (Button);
 const UISelectItem = /** @type {any} */ (SelectItem);
 
-// ─── helpers duplicated from LeadCard so TabContent is self-contained ──────────
-const toInt = (v, fb) => { const p = Number.parseInt(String(v ??'').trim(), 10); return Number.isFinite(p) ? p : fb; };
-
-function getDaysSinceFirstSent(history) {
- if (!history?.length) return null;
- const first = [...history].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0];
- if (!first?.created_at) return null;
- return differenceInDays(new Date(), new Date(first.created_at));
+function getLeadHistory(lead, tab, sentMessages) {
+ const key = getSentMessageKeyForLead(lead, tab);
+ return sentMessages.filter((row) => {
+ const src = String(row?.lead_source || '').trim().toLowerCase();
+ const rec = String(row?.source_record_id || '').trim();
+ const rowKey = (src && rec) ? `${src}:${rec}` : null;
+ return Boolean(key && rowKey && key === rowKey);
+ });
 }
 
 function isOverdue(lead, tab, sentMessages, templates) {
- const history = sentMessages.filter(row => {
- const key = getSentMessageKeyForLead(lead, tab);
- const rowKey = (() => {
- const src = String(row?.lead_source ||'').trim().toLowerCase();
- const rec = String(row?.source_record_id ||'').trim();
- if (!src || !rec) return null;
- return`${src}:${rec}`;
- })();
- return key && rowKey && key === rowKey;
- });
- if (!history.length) return false;
- const seqTemplates = Array.isArray(templates) ? templates
- .filter(t => t?.step_number != null)
- .map((t, i) => ({ ...t, step_number: Math.max(1, toInt(t.step_number, i + 1)), delay_days: Math.max(0, toInt(t.delay_days, 0)) }))
- .sort((a, b) => a.step_number - b.step_number)
- : [];
- const hasConfigured = seqTemplates.some(t => t.step_number > 1 || t.delay_days > 0);
- const seq = hasConfigured ? seqTemplates : [];
-
- const sentCount = history.length;
- if (seq.length > 0) {
- if (sentCount >= seq.length) return false;
- const nextDelay = Math.max(0, toInt(seq[sentCount]?.delay_days, 0));
- const daysSince = getDaysSinceFirstSent(history);
- return daysSince !== null && daysSince > nextDelay;
- }
- const MATCHTALK = [1, 2, 4];
- const DEFAULT = [1, 2, 5];
- const days = tab ==='matchtalk' ? MATCHTALK : DEFAULT;
- if (sentCount >= days.length) return false;
- const nextDay = days[sentCount];
- if (nextDay === 1) return false;
- const daysSince = getDaysSinceFirstSent(history);
- return daysSince !== null && daysSince > nextDay;
+ const history = getLeadHistory(lead, tab, sentMessages);
+ const state = getNonAIFollowupState(history, tab, templates);
+ return state.overdue;
 }
 
 function hasCustomFollowupDue(lead, tab, followupCalls) {
@@ -81,40 +49,9 @@ function hasCustomFollowupDue(lead, tab, followupCalls) {
 }
 
 function isDueToday(lead, tab, sentMessages, templates) {
- const key = getSentMessageKeyForLead(lead, tab);
- const history = sentMessages.filter(row => {
- const rowKey = (() => {
- const src = String(row?.lead_source ||'').trim().toLowerCase();
- const rec = String(row?.source_record_id ||'').trim();
- return (src && rec) ?`${src}:${rec}` : null;
- })();
- return key && rowKey && key === rowKey;
- });
- // 0 sent → first message is always due
- if (!history.length) return true;
-
- const seqTemplates = Array.isArray(templates) ? templates
- .filter(t => t?.step_number != null)
- .map((t, i) => ({ ...t, step_number: Math.max(1, toInt(t.step_number, i + 1)), delay_days: Math.max(0, toInt(t.delay_days, 0)) }))
- .sort((a, b) => a.step_number - b.step_number) : [];
- const hasConfigured = seqTemplates.some(t => t.step_number > 1 || t.delay_days > 0);
- const seq = hasConfigured ? seqTemplates : [];
-
- const sentCount = history.length;
- if (seq.length > 0) {
- if (sentCount >= seq.length) return false;
- const nextDelay = Math.max(0, toInt(seq[sentCount]?.delay_days, 0));
- const daysSince = getDaysSinceFirstSent(history);
- return daysSince !== null && daysSince >= nextDelay;
- }
- const MATCHTALK = [1, 2, 4];
- const DEFAULT = [1, 2, 5];
- const days = tab ==='matchtalk' ? MATCHTALK : DEFAULT;
- if (sentCount >= days.length) return false;
- const nextDay = days[sentCount];
- if (nextDay === 1) return false;
- const daysSince = getDaysSinceFirstSent(history);
- return daysSince !== null && daysSince >= nextDay;
+ const history = getLeadHistory(lead, tab, sentMessages);
+ const state = getNonAIFollowupState(history, tab, templates);
+ return !state.isDone && !state.overdue && state.daysUntil === 0;
 }
 
 // ─── Main TabContent ───────────────────────────────────────────────────────────
@@ -272,27 +209,12 @@ export default function TabContent({ leads, isLoading, tab, accentColor, getMess
  let dueToday = 0;
  let done = 0;
  filtered.forEach(lead => {
- const key = getSentMessageKeyForLead(lead, tab);
- const history = sentMessages.filter(row => {
- const rowKey = (() => {
- const src = String(row?.lead_source ||'').trim().toLowerCase();
- const rec = String(row?.source_record_id ||'').trim();
- return (src && rec) ?`${src}:${rec}` : null;
- })();
- return key && rowKey && key === rowKey;
- });
+ const history = getLeadHistory(lead, tab, sentMessages);
+ const state = getNonAIFollowupState(history, tab, templates);
 
- const seqTemplates = Array.isArray(templates) ? templates
- .filter(t => t?.step_number != null)
- .map((t, i) => ({ ...t, step_number: Math.max(1, toInt(t.step_number, i + 1)), delay_days: Math.max(0, toInt(t.delay_days, 0)) }))
- .sort((a, b) => a.step_number - b.step_number) : [];
- const hasConfigured = seqTemplates.some(t => t.step_number > 1 || t.delay_days > 0);
- const totalSeqSteps = hasConfigured ? seqTemplates.length : (tab ==='matchtalk' ? 3 : 3);
- const sentCount = history.length;
-
- if (sentCount >= totalSeqSteps) { done++; return; }
- if (isOverdue(lead, tab, sentMessages, templates)) { overdue++; return; }
- if (isDueToday(lead, tab, sentMessages, templates)) { dueToday++; return; }
+ if (state.isDone) { done++; return; }
+ if (state.overdue) { overdue++; return; }
+ if (state.daysUntil === 0) { dueToday++; return; }
  });
  const pending = total - done - overdue - dueToday;
  return { total, overdue, dueToday, done, pending };
