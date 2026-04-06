@@ -612,6 +612,7 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  ['Branch', normalizedLead.branch],
  ['TL Name', normalizedLead.tl_name],
  ['Allocation Status', normalizedLead.allocation_status],
+ ['Booking Date', normalizedLead.stage_3_date ? new Date(normalizedLead.stage_3_date).toLocaleDateString('en-IN') : null],
  ].filter(([, val]) => val).map(([label, val]) => (
  <div key={label} className="flex items-center gap-1.5 text-xs">
  <span className="text-gray-400 w-28 flex-shrink-0">{label}:</span>
@@ -646,6 +647,7 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  ['VC #', normalizedLead.vc_number],
  ['Finance Remark', normalizedLead.finance_remark],
  ['Opty ID', normalizedLead.opty_id],
+ ['Booking Date', normalizedLead.stage_3_date ? new Date(normalizedLead.stage_3_date).toLocaleDateString('en-IN') : null],
  ].filter(([, val]) => val).map(([label, val]) => (
  <div key={label} className="flex items-center gap-1.5 text-xs">
  <span className="text-gray-400 w-28 flex-shrink-0">{label}:</span>
@@ -672,6 +674,12 @@ export default function LeadCard({ lead, tab, accentColor, message, isSent, onMa
  <div className="flex items-center gap-1.5 text-xs">
  <span className="text-gray-400 w-20 flex-shrink-0">Employee:</span>
  <span className="text-gray-700 font-medium">{resolvedGreenFormOwnerName}</span>
+ </div>
+ )}
+ {lead?.created_at && (
+ <div className="flex items-center gap-1.5 text-xs">
+ <span className="text-gray-400 w-20 flex-shrink-0">Created:</span>
+ <span className="text-gray-700 font-medium">{new Date(lead.created_at).toLocaleDateString('en-IN')}</span>
  </div>
  )}
  </>
